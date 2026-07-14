@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: watch-pi-agent [options] <name>
+
+Blocks until the Pi agent <name> finishes, asks a question, its pane dies,
+or the timeout is reached. Claude should launch this in the background after
+spawning Pi; when it exits, the harness wakes Claude without touching input.
+Question signals are moved to a preserved *.pending-*.md file before exit.
+
+Options:
+  --root <path>       Agent state root (default: /tmp/claude-agents)
+  --interval <sec>    Poll interval in seconds (default: 2)
+  --timeout <sec>     Give up after this many seconds (default: 1800)
+  --help, -h          Show help
+
+Exit codes:
+  0  result or question file appeared
+  2  timeout or invalid arguments
+  3  recorded tmux pane died before any file signal
+USAGE
+}
+
+fail_watch_pi_agent() {
+  printf 'watch-pi-agent: %s\n' "$1" >&2
+  exit 2
+}
+
+validate_agent_name() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
+    fail_watch_pi_agent "invalid name '$name' (expected 1-64 chars: letters, numbers, dot, underscore, dash; must start alphanumeric)"
+}
+
+validate_seconds() {
+  local label="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+$ ]] || fail_watch_pi_agent "invalid $label '$value' (expected non-negative integer seconds)"
+}
+
+result_signal_path() {
+  local root="$1" name="$2"
+  printf '%s/%s.result.md' "$root" "$name"
+}
+
+question_signal_path() {
+  local root="$1" name="$2"
+  printf '%s/%s.question.md' "$root" "$name"
+}
+
+resolved_signal_target() {
+  local path="$1"
+  if [ -L "$path" ]; then
+    readlink "$path"
+    return
+  fi
+  printf '%s' "$path"
+}
+
+preserve_question_signal() {
+  local link_path="$1" target_path pending_path stamp
+  target_path=$(resolved_signal_target "$link_path")
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  pending_path="${target_path%.md}.pending-${stamp}-$$.md"
+  mv "$target_path" "$pending_path"
+  printf '%s' "$pending_path"
+}
+
+recorded_pane_ref() {
+  local root="$1" name="$2" pane_file="$root/$name.pane"
+  [ -f "$pane_file" ] || return 0
+  tr -d '[:space:]' < "$pane_file"
+}
+
+pane_is_alive() {
+  local pane="$1" resolved=""
+  [ -n "$pane" ] || return 0
+  [[ "$pane" =~ ^%[0-9]+$ ]] || return 1
+  resolved=$(tmux display-message -t "$pane" -p '#{pane_id}' 2>/dev/null || true)
+  [ "$resolved" = "$pane" ]
+}
+
+elapsed_seconds() {
+  local started_at="$1"
+  printf '%s' "$(($(date +%s) - started_at))"
+}
+
+signal_path_label() {
+  case "$1" in
+    result) printf 'RESULT_PATH' ;;
+    question) printf 'QUESTION_PATH' ;;
+    *) printf 'SIGNAL_PATH' ;;
+  esac
+}
+
+print_signal() {
+  local signal="$1" name="$2" elapsed="$3" path="${4:-}" pane="${5:-}"
+  printf 'SIGNAL=%s\nNAME=%s\nELAPSED=%s\n' "$signal" "$name" "$elapsed"
+  [ -n "$path" ] && printf '%s=%s\n' "$(signal_path_label "$signal")" "$path"
+  [ -n "$pane" ] && printf 'PANE=%s\n' "$pane"
+  return 0
+}
+
+check_file_signals() {
+  local root="$1" name="$2" elapsed="$3"
+  local result_path question_path
+  result_path=$(result_signal_path "$root" "$name")
+  question_path=$(question_signal_path "$root" "$name")
+
+  if [ -f "$result_path" ]; then
+    print_signal "result" "$name" "$elapsed" "$result_path"
+    exit 0
+  fi
+  if [ -f "$question_path" ]; then
+    question_path=$(preserve_question_signal "$question_path")
+    print_signal "question" "$name" "$elapsed" "$question_path"
+    exit 0
+  fi
+  return 0
+}
+
+watch_until_signal() {
+  local root="$1" name="$2" interval="$3" timeout="$4"
+  local started_at elapsed pane
+  started_at=$(date +%s)
+
+  while true; do
+    elapsed=$(elapsed_seconds "$started_at")
+    check_file_signals "$root" "$name" "$elapsed"
+    pane=$(recorded_pane_ref "$root" "$name")
+    if [ -n "$pane" ] && ! pane_is_alive "$pane"; then
+      print_signal "pane-died" "$name" "$elapsed" "" "$pane"
+      exit 3
+    fi
+    if [ "$elapsed" -ge "$timeout" ]; then
+      print_signal "timeout" "$name" "$elapsed" "" "$pane"
+      exit 2
+    fi
+    sleep "$interval"
+  done
+}
+
+parse_watch_args() {
+  root="/tmp/claude-agents" interval="2" timeout="1800"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --root) root="${2:-}"; shift 2 ;;
+      --interval) interval="${2:-}"; shift 2 ;;
+      --timeout) timeout="${2:-}"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      --) shift; break ;;
+      -*) fail_watch_pi_agent "unknown option: $1" ;;
+      *) break ;;
+    esac
+  done
+  name="${1:-}"
+}
+
+main() {
+  parse_watch_args "$@"
+  [ -n "$name" ] || { usage >&2; exit 2; }
+  validate_agent_name "$name"
+  validate_seconds "interval" "$interval"
+  validate_seconds "timeout" "$timeout"
+  command -v tmux >/dev/null 2>&1 || fail_watch_pi_agent "tmux not found"
+  watch_until_signal "$root" "$name" "$interval" "$timeout"
+}
+
+main "$@"

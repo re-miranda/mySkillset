@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: poll-pi-agent [options] <name-or-pane-id>
+
+Checks a Pi tmux agent. Names resolve only through their recorded stable pane
+ID; direct pane targets must use tmux's %<number> form.
+
+Options:
+  --root <path>       Agent state root (default: /tmp/claude-agents)
+  --lines <n>         Lines of pane history to capture (default: 150)
+  --help, -h          Show help
+USAGE
+}
+
+fail_poll_pi_agent() {
+  printf 'poll-pi-agent: %s\n' "$1" >&2
+  exit 1
+}
+
+is_direct_pane_ref() {
+  [[ "$1" =~ ^%[0-9]+$ ]]
+}
+
+validate_agent_name() {
+  [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
+    fail_poll_pi_agent "invalid name '$1' (expected 1-64 safe characters or a stable pane ID like %3)"
+}
+
+capture_pane() {
+  local pane="$1" lines="$2"
+  tmux capture-pane -t "$pane" -p -S "-$lines" 2>/dev/null || return 1
+}
+
+print_file_signal() {
+  local kind="$1" path="$2"
+  case "$kind" in
+    result) printf 'RESULT_READY=1\nRESULT_PATH=%s\n--- result ---\n' "$path" ;;
+    question) printf 'QUESTION_PENDING=1\nQUESTION_PATH=%s\n--- question ---\n' "$path" ;;
+  esac
+  cat "$path"
+}
+
+print_named_file_if_present() {
+  local root="$1" name="$2"
+  local result_path="$root/$name.result.md" question_path="$root/$name.question.md"
+  if [ -f "$result_path" ]; then
+    print_file_signal "result" "$result_path"
+    return 0
+  fi
+  if [ -f "$question_path" ]; then
+    print_file_signal "question" "$question_path"
+    return 0
+  fi
+  return 1
+}
+
+print_captured_pane() {
+  local pane="$1" lines="$2" header="$3"
+  local screen_path
+  screen_path=$(mktemp)
+  if capture_pane "$pane" "$lines" > "$screen_path"; then
+    printf '%b\n' "$header"
+    cat "$screen_path"
+    rm -f "$screen_path"
+    return 0
+  fi
+  rm -f "$screen_path"
+  return 1
+}
+
+resolve_recorded_pane() {
+  local pane_path="$1" resolved=""
+  recorded_pane=$(tr -d '[:space:]' < "$pane_path")
+  is_direct_pane_ref "$recorded_pane" || \
+    fail_poll_pi_agent "invalid pane mapping '$recorded_pane' (expected stable tmux pane ID like %3)"
+  resolved=$(tmux display-message -t "$recorded_pane" -p '#{pane_id}' 2>/dev/null || true)
+  [ "$resolved" = "$recorded_pane" ] || \
+    fail_poll_pi_agent "stale pane mapping '$recorded_pane' (expected a live tmux pane ID)"
+}
+
+print_named_pane() {
+  local root="$1" name="$2" lines="$3"
+  local pane_path="$root/$name.pane"
+  [ -f "$pane_path" ] || return 1
+  resolve_recorded_pane "$pane_path"
+  print_captured_pane "$recorded_pane" "$lines" "RESULT_READY=0\nQUESTION_PENDING=0\nNAME=$name\nPANE=$recorded_pane\n--- pane ---"
+}
+
+poll_named_agent() {
+  local root="$1" name="$2" lines="$3"
+  validate_agent_name "$name"
+  print_named_file_if_present "$root" "$name" && exit 0
+  print_named_pane "$root" "$name" "$lines" && exit 0
+  printf 'RESULT_READY=0\nQUESTION_PENDING=0\nNAME=%s\nERROR=no result file, question file, or pane mapping found\n' "$name"
+  exit 1
+}
+
+parse_poll_args() {
+  root="/tmp/claude-agents" lines="150"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --root) root="${2:-}"; shift 2 ;;
+      --lines) lines="${2:-}"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      --) shift; break ;;
+      -*) fail_poll_pi_agent "unknown option: $1" ;;
+      *) break ;;
+    esac
+  done
+  name_or_pane="${1:-}"
+}
+
+poll_direct_pane() {
+  local pane="$1" history_lines="$2" resolved=""
+  resolved=$(tmux display-message -t "$pane" -p '#{pane_id}' 2>/dev/null || true)
+  [ "$resolved" = "$pane" ] || fail_poll_pi_agent "pane '$pane' was not found (expected a live tmux pane ID)"
+  print_captured_pane "$pane" "$history_lines" "RESULT_READY=0\nQUESTION_PENDING=0\nPANE=$pane\n--- pane ---"
+}
+
+main() {
+  parse_poll_args "$@"
+  [ -n "$name_or_pane" ] || { usage >&2; exit 2; }
+  command -v tmux >/dev/null 2>&1 || fail_poll_pi_agent "tmux not found"
+  if is_direct_pane_ref "$name_or_pane"; then
+    poll_direct_pane "$name_or_pane" "$lines"
+    exit 0
+  fi
+  poll_named_agent "$root" "$name_or_pane" "$lines"
+}
+
+main "$@"

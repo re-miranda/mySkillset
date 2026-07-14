@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: cleanup-pi-agent [options] <name>
+
+Cleans the active Pi helper files for <name>. Kills the recorded split pane only
+when --kill-pane is passed. Per-run directories are preserved unless --purge-run
+is passed.
+
+Options:
+  --root <path>     Agent state root (default: /tmp/claude-agents)
+  --kill-pane       Kill the recorded tmux pane
+  --purge-run       Remove the active per-run directory too
+  --yes, -y         Do not ask for confirmation
+  --help, -h        Show help
+USAGE
+}
+
+fail_cleanup_pi_agent() {
+  printf 'cleanup-pi-agent: %s\n' "$1" >&2
+  exit 1
+}
+
+confirm_cleanup() {
+  local prompt="$1"
+  printf '%s [y/N] ' "$prompt" >&2
+  local answer=""
+  read -r answer
+  [[ "$answer" == "y" || "$answer" == "Y" || "$answer" == "yes" || "$answer" == "YES" ]]
+}
+
+kill_recorded_pane() {
+  local pane="$1" resolved=""
+  [[ "$pane" =~ ^%[0-9]+$ ]] || fail_cleanup_pi_agent "invalid pane mapping '$pane' (expected stable tmux pane ID like %3)"
+  resolved=$(tmux display-message -t "$pane" -p '#{pane_id}' 2>/dev/null || true)
+  if [ -z "$resolved" ]; then
+    printf 'cleanup-pi-agent: recorded pane %s is already gone\n' "$pane" >&2
+    return
+  fi
+  [ "$resolved" = "$pane" ] || fail_cleanup_pi_agent "pane mapping '$pane' resolved to unexpected pane '$resolved'"
+  tmux kill-pane -t "$pane"
+  killed_pane="1"
+}
+
+parse_cleanup_args() {
+  root="/tmp/claude-agents" kill_pane="0" purge_run="0" yes="0"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --root) root="${2:-}"; shift 2 ;;
+      --kill-pane) kill_pane="1"; shift ;;
+      --purge-run) purge_run="1"; shift ;;
+      --yes|-y) yes="1"; shift ;;
+      --help|-h) usage; exit 0 ;;
+      --) shift; break ;;
+      -*) fail_cleanup_pi_agent "unknown option: $1" ;;
+      *) break ;;
+    esac
+  done
+  name="${1:-}"
+}
+
+load_cleanup_targets() {
+  [ -n "$name" ] || { usage >&2; exit 2; }
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || fail_cleanup_pi_agent "invalid name: $name"
+  pane="" run_dir=""
+  [ ! -f "$root/$name.pane" ] || pane=$(tr -d '[:space:]' < "$root/$name.pane")
+  [ ! -f "$root/$name.run" ] || run_dir=$(cat "$root/$name.run")
+}
+
+remove_active_files() {
+  rm -f "$root/$name.md" "$root/$name.system.md" \
+    "$root/$name.result.md" "$root/$name.question.md" \
+    "$root/$name.pane" "$root/$name.run" "$root/$name.meta"
+}
+
+purge_active_run() {
+  [ "$purge_run" = "1" ] && [ -n "$run_dir" ] || return 0
+  case "$run_dir" in
+    "$root"/runs/*) rm -rf "$run_dir" ;;
+    *) fail_cleanup_pi_agent "refusing to purge unexpected run dir: $run_dir" ;;
+  esac
+}
+
+main() {
+  parse_cleanup_args "$@"
+  load_cleanup_targets
+  [ "$yes" = "1" ] || confirm_cleanup "Clean active files for '$name'?" || exit 0
+  killed_pane="0"
+  [ "$kill_pane" != "1" ] || [ -z "$pane" ] || kill_recorded_pane "$pane"
+  remove_active_files
+  purge_active_run
+  printf 'CLEANED=%s\nKILLED_PANE=%s\nPURGED_RUN=%s\n' "$name" "$killed_pane" "$purge_run"
+}
+
+main "$@"

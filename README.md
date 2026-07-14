@@ -2,6 +2,17 @@
 
 A personal, portable library of reusable agent skills. The repository is designed to be cloned once, reviewed as normal source code, and updated safely with fast-forward-only pulls.
 
+## Connect the GitHub repository
+
+After creating the empty GitHub repository:
+
+```bash
+git remote add origin git@github.com:<owner>/agent-skills.git
+git push -u origin main
+```
+
+Do not initialize the GitHub repository with a README or license; this local repository already contains both.
+
 ## Daily use
 
 After the GitHub remote exists:
@@ -31,7 +42,9 @@ Update my shared agent skills from the local agent-skills repository. Do not res
 
 Read [`SKILLS.md`](SKILLS.md) for what each skill does, when to use it, and how it installs. Models should read only the selected skill's `SKILL.md` during normal work; maintainer references are progressive-disclosure material.
 
-No skills have been published in the foundation commit yet.
+### `tmux-pi-subagents`
+
+Claude Code delegates work to Pi companions in tmux while keeping decision ownership. Pi reports through watched files; stable pane IDs are used only when Claude must reply. See [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/README.md).
 
 ## Repository layout
 
