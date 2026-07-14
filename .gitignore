@@ -1,0 +1,8 @@
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.bak
+*.bak.*
+.local/
+.tmp/
