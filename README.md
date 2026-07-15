@@ -46,6 +46,10 @@ Read [`SKILLS.md`](SKILLS.md) for what each skill does, when to use it, and how 
 
 Claude Code delegates work to Pi companions in tmux while keeping decision ownership. Pi reports through watched files; stable pane IDs are used only when Claude must reply. See [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/README.md).
 
+### `rolling-code-audit`
+
+A standing, never-finished code review driven by a staleness score instead of a calendar. One command runs a rotation against the stalest area recorded in a standing GitHub issue; a second lets a newer model re-derive the plan itself. See [`skills/rolling-code-audit`](skills/rolling-code-audit/README.md).
+
 ## Repository layout
 
 ```text

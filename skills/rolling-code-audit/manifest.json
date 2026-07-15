@@ -1,0 +1,26 @@
+{
+  "name": "rolling-code-audit",
+  "version": "0.1.0",
+  "license": "0BSD",
+  "entrypoint": "SKILL.md",
+  "description": "Standing, never-finished codebase review: score areas by staleness from a standing GitHub issue, review only the stalest per run, file findings as issues, and rotate; a second command lets a newer model re-derive the plan itself.",
+  "requirements": [
+    "claude-code",
+    "git",
+    "gh",
+    "bash"
+  ],
+  "validationCommand": "bash test.sh",
+  "installs": {
+    "skills": [
+      "~/.claude/skills/rolling-code-audit/SKILL.md",
+      "~/.claude/skills/rolling-code-audit-replan/SKILL.md"
+    ]
+  },
+  "safety": {
+    "githubWrites": "issue creation, edits, and comments are previewed and require user confirmation",
+    "standingIssue": "never closed; a missing standing issue stops the run instead of creating one",
+    "scope": "the audit observes and files issues only; it never fixes code",
+    "commandBudget": "the replan command must keep the system at exactly two commands"
+  }
+}

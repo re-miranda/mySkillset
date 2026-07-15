@@ -22,6 +22,16 @@ This is the authoritative root-level guide to the skills in this repository.
 - **Validation:** `bash skills/tmux-pi-subagents/test.sh`
 - **Maintainer warning:** Read `references/KNOWN_FAILURES.md` before changing routing or signaling. Its rejected examples must never enter generated Pi prompts.
 
+### `rolling-code-audit`
+
+- **Path:** [`skills/rolling-code-audit`](skills/rolling-code-audit/)
+- **Purpose:** Maintain a standing, never-finished codebase review: score areas by staleness from a standing GitHub issue, review only the stalest area per run, file findings as issues, and rotate.
+- **When to use:** Spare-capacity moments to run one audit rotation (`/rolling-code-audit`), or when a newer model than the plan's "Plan shaped by" stamp should re-derive the plan itself (`/rolling-code-audit-replan`).
+- **When not to use:** Reviewing a PR or working diff, fixing findings, or repositories without the standing "Rolling code audit — standing review index" issue — bootstrap it from `references/standing-issue.example.md` first.
+- **Installs:** Two Claude skills: `~/.claude/skills/rolling-code-audit` and `~/.claude/skills/rolling-code-audit-replan`.
+- **Validation:** `bash skills/rolling-code-audit/test.sh`
+- **Safety:** All GitHub writes are previewed and user-confirmed; runs never fix code and never close or create the standing issue; the replan command must keep the system at exactly two commands.
+
 ## Catalog entry requirements
 
 Every new skill must add an entry containing:
