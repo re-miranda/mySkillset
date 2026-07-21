@@ -5,8 +5,8 @@ show_usage() {
   cat <<'USAGE'
 Usage: spawn-pi-agent [options] <name> [task text...]
 
-Spawns a Pi companion in a tmux split pane. The initial task is delivered as
-an @brief.md argument to pi, avoiding TUI send-keys startup races.
+Spawns a Pi companion in a tmux split pane. On Pi 0.80.10, the @brief.md
+argument auto-runs; launch is verified through the session journal and recovered once.
 
 Options:
   --thinking, -t <level>     Pi thinking level: low, medium, high, xhigh (default: high)
@@ -164,6 +164,8 @@ validate_runtime_commands() {
   [ "$dry_run" = "1" ] && return
   require_command pi
   require_command tmux
+  [ -x "$script_dir/verify-pi-delivery" ] || \
+    fail_spawn_pi_agent "delivery helper '$script_dir/verify-pi-delivery' is not executable (expected an installed executable helper)"
 }
 
 refuse_live_name_reuse() {
@@ -174,6 +176,28 @@ refuse_live_name_reuse() {
   resolved=$(tmux display-message -t "$prior_pane" -p '#{pane_id}' 2>/dev/null || true)
   [ "$resolved" != "$prior_pane" ] || \
     fail_spawn_pi_agent "name '$name' already maps to live pane '$prior_pane' (expected a unique name for each live agent)"
+}
+
+generate_session_id() {
+  local uuid_path="/proc/sys/kernel/random/uuid"
+  [ -r "$uuid_path" ] || \
+    fail_spawn_pi_agent "UUID source '$uuid_path' is unreadable (expected a Linux kernel UUID source)"
+  session_id=$(tr -d '[:space:]' < "$uuid_path")
+  [[ "$session_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
+    fail_spawn_pi_agent "generated session ID '$session_id' (expected a UUID)"
+}
+
+capture_runtime_versions() {
+  pi_version="unavailable"
+  tmux_version="unavailable"
+  if command -v pi >/dev/null 2>&1; then
+    pi_version=$(pi --version 2>&1) || \
+      fail_spawn_pi_agent "pi version command failed for 'pi --version' (expected a version string)"
+  fi
+  if command -v tmux >/dev/null 2>&1; then
+    tmux_version=$(tmux -V 2>&1) || \
+      fail_spawn_pi_agent "tmux version command failed for 'tmux -V' (expected a version string)"
+  fi
 }
 
 prepare_run_paths() {
@@ -187,6 +211,7 @@ prepare_run_paths() {
   question_path="$run_dir/question.md"
   meta_path="$run_dir/meta.env"
   command_path="$run_dir/launch.sh"
+  generate_session_id
   mkdir -p "$run_dir"
 }
 
@@ -210,15 +235,16 @@ link_active_files() {
 }
 
 build_commands() {
-  local workdir_q system_q brief_arg_q pi_name_q thinking_q root_q watch_bin_q
+  local workdir_q system_q brief_arg_q pi_name_q thinking_q session_id_q root_q watch_bin_q
   workdir_q=$(quote_shell_arg "$workdir")
   system_q=$(quote_shell_arg "$system_path")
   brief_arg_q=$(quote_shell_arg "@$brief_path")
   pi_name_q=$(quote_shell_arg "$name")
   thinking_q=$(quote_shell_arg "$thinking")
+  session_id_q=$(quote_shell_arg "$session_id")
   root_q=$(quote_shell_arg "$root")
   watch_bin_q=$(quote_shell_arg "$script_dir/watch-pi-agent")
-  pi_cmd="cd $workdir_q && pi --name $pi_name_q --thinking $thinking_q --append-system-prompt $system_q $brief_arg_q"
+  pi_cmd="cd $workdir_q && pi --name $pi_name_q --thinking $thinking_q --session-id $session_id_q --append-system-prompt $system_q $brief_arg_q"
   watch_cmd="$watch_bin_q --root $root_q $pi_name_q"
 }
 
@@ -244,6 +270,9 @@ source_pane=$source_pane
 thinking=$thinking
 direction=$direction
 started_at=$stamp
+session_id=$session_id
+pi_version=$pi_version
+tmux_version=$tmux_version
 command=$pi_cmd
 watch=$watch_cmd
 EOF
@@ -267,14 +296,60 @@ spawn_pane() {
   printf '%s\n' "$pane" > "$root/$name.pane"
 }
 
+report_launch_recovery_error() {
+  printf 'spawn-pi-agent: %s\n' "$1" >&2
+  return 1
+}
+
+resolve_launch_recovery_pane() {
+  local pane_path="$root/$name.pane" resolved=""
+  [ -f "$pane_path" ] || { report_launch_recovery_error \
+    "pane mapping '$pane_path' is missing (expected the recorded launch pane)"; return 1; }
+  recovery_pane=$(tr -d '[:space:]' < "$pane_path")
+  [[ "$recovery_pane" =~ ^%[0-9]+$ ]] || { report_launch_recovery_error \
+    "invalid pane mapping '$recovery_pane' (expected stable tmux pane ID like %3)"; return 1; }
+  resolved=$(tmux display-message -t "$recovery_pane" -p '#{pane_id}' 2>/dev/null || true)
+  [ "$resolved" = "$recovery_pane" ] || { report_launch_recovery_error \
+    "stale pane mapping '$recovery_pane' (expected a live tmux pane ID)"; return 1; }
+  tmux capture-pane -t "$recovery_pane" -p -S -12 || { report_launch_recovery_error \
+    "could not capture pane '$recovery_pane' (expected a readable live Pi pane)"; return 1; }
+}
+
+resubmit_launch_brief() {
+  local recovery_text="Read $brief_path and start work on it now."
+  resolve_launch_recovery_pane || return 1
+  tmux send-keys -t "$recovery_pane" -l "$recovery_text" || { report_launch_recovery_error \
+    "could not send recovery text to '$recovery_pane' (expected a writable live Pi pane)"; return 1; }
+  sleep 1 || { report_launch_recovery_error \
+    "recovery delay failed for pane '$recovery_pane' (expected a one-second sleep)"; return 1; }
+  tmux send-keys -t "$recovery_pane" Enter || { report_launch_recovery_error \
+    "could not submit recovery text to '$recovery_pane' (expected unmodified Enter delivery)"; return 1; }
+}
+
+verify_brief_delivery() {
+  local timeout="$1" marker
+  marker=$(basename "$brief_path")
+  "$script_dir/verify-pi-delivery" "$name" --root "$root" \
+    --marker "$marker" --timeout "$timeout"
+}
+
+ensure_launch_delivery() {
+  if verify_brief_delivery 25; then
+    return 0
+  fi
+  printf 'spawn-pi-agent: initial brief was not verified; retrying once with Enter\n' >&2
+  resubmit_launch_brief || return 1
+  verify_brief_delivery 20
+}
+
 print_launch_summary() {
-  printf 'NAME=%s\nPANE=%s\nRUN_DIR=%s\nBRIEF=%s\nRESULT=%s\nQUESTION=%s\nPOLL=/poll %s\nWATCH=%s\n' \
-    "$name" "$pane" "$run_dir" "$brief_path" "$result_path" "$question_path" "$name" "$watch_cmd"
+  printf 'NAME=%s\nPANE=%s\nSESSION_ID=%s\nRUN_DIR=%s\nBRIEF=%s\nRESULT=%s\nQUESTION=%s\nPOLL=/poll %s\nWATCH=%s\n' \
+    "$name" "$pane" "$session_id" "$run_dir" "$brief_path" "$result_path" "$question_path" "$name" "$watch_cmd"
 }
 
 print_dry_run_summary() {
-  printf 'DRY_RUN=1\nNAME=%s\nRUN_DIR=%s\nBRIEF=%s\nRESULT=%s\nQUESTION=%s\nCOMMAND=%s\nWATCH=%s\n' \
-    "$name" "$run_dir" "$brief_path" "$result_path" "$question_path" "$pi_cmd" "$watch_cmd"
+  printf 'DRY_RUN=1\nNAME=%s\nSESSION_ID=%s\nRUN_DIR=%s\nBRIEF=%s\nRESULT=%s\nQUESTION=%s\nCOMMAND=%s\nWATCH=%s\n' \
+    "$name" "$session_id" "$run_dir" "$brief_path" "$result_path" "$question_path" "$pi_cmd" "$watch_cmd"
 }
 
 run_spawn() {
@@ -283,10 +358,23 @@ run_spawn() {
   validate_runtime_commands
   refuse_live_name_reuse
   prepare_run_paths
+  capture_runtime_versions
   build_commands
   write_run_files
   archive_active_links
   link_active_files
+}
+
+complete_live_spawn() {
+  spawn_pane
+  write_meta_file
+  print_launch_summary
+  if ensure_launch_delivery; then
+    printf 'LAUNCH=ok\n'
+    return 0
+  fi
+  printf 'LAUNCH=failed\n'
+  return 1
 }
 
 main() {
@@ -299,11 +387,9 @@ main() {
   if [ "$dry_run" = "1" ]; then
     write_meta_file
     print_dry_run_summary
-    exit 0
+    return 0
   fi
-  spawn_pane
-  write_meta_file
-  print_launch_summary
+  complete_live_spawn
 }
 
 main "$@"

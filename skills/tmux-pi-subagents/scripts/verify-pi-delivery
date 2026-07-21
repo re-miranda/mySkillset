@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+show_usage() {
+  cat <<'USAGE'
+Usage: verify-pi-delivery [options] <name>
+
+Confirms that Pi's session journal contains a submitted user message with the
+requested marker.
+
+Options:
+  --marker <text>          Distinctive text expected in the user message (required)
+  --timeout <sec>          Give up after this many seconds (default: 20)
+  --interval <sec>         Poll interval in seconds (default: 1)
+  --root <path>            Agent state root (default: /tmp/claude-agents)
+  --sessions-root <path>   Pi sessions root (default: ~/.pi/agent/sessions)
+  --help, -h               Show this help
+
+Exit codes:
+  0  matching user-message record appeared
+  2  invalid input, ambiguous journal, or timeout
+USAGE
+}
+
+fail_delivery_verification() {
+  local message="$1" journal_path="${2:-}"
+  printf 'DELIVERY=failed\n'
+  [ -z "$journal_path" ] || printf 'JOURNAL=%s\n' "$journal_path"
+  printf 'verify-pi-delivery: %s\n' "$message" >&2
+  exit 2
+}
+
+validate_agent_name() {
+  local name="$1"
+  [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
+    fail_delivery_verification "invalid name '$name' (expected 1-64 chars: letters, numbers, dot, underscore, dash; must start alphanumeric)"
+}
+
+validate_seconds() {
+  local label="$1" value="$2"
+  [[ "$value" =~ ^[0-9]+$ ]] || \
+    fail_delivery_verification "invalid $label '$value' (expected non-negative integer seconds)"
+}
+
+record_delivery_agent_name() {
+  local candidate="$1"
+  [ -z "$name" ] || fail_delivery_verification "unexpected argument '$candidate' (expected one agent name)"
+  name="$candidate"
+}
+
+require_option_argument() {
+  local option="$1" argument_count="$2"
+  [ "$argument_count" -ge 2 ] || \
+    fail_delivery_verification "option '$option' has no value (expected one following argument)"
+}
+
+parse_delivery_args() {
+  root="/tmp/claude-agents" sessions_root="${HOME:+$HOME/.pi/agent/sessions}"
+  marker="" timeout="20" interval="1" name=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --marker) require_option_argument "$1" "$#"; marker="$2"; shift 2 ;;
+      --timeout) require_option_argument "$1" "$#"; timeout="$2"; shift 2 ;;
+      --interval) require_option_argument "$1" "$#"; interval="$2"; shift 2 ;;
+      --root) require_option_argument "$1" "$#"; root="$2"; shift 2 ;;
+      --sessions-root) require_option_argument "$1" "$#"; sessions_root="$2"; shift 2 ;;
+      --help|-h) show_usage; exit 0 ;;
+      --) shift ;;
+      -*) fail_delivery_verification "unknown option '$1' (expected --marker, --timeout, --interval, --root, or --sessions-root)" ;;
+      *) record_delivery_agent_name "$1"; shift ;;
+    esac
+  done
+}
+
+validate_delivery_inputs() {
+  [ -n "$name" ] || { show_usage >&2; exit 2; }
+  validate_agent_name "$name"
+  [ -n "$marker" ] || fail_delivery_verification "empty marker '' (expected distinctive non-empty text)"
+  [[ "$marker" != *$'\n'* ]] || \
+    fail_delivery_verification "multi-line marker '$marker' (expected distinctive text on one journal line)"
+  validate_seconds "timeout" "$timeout"
+  validate_seconds "interval" "$interval"
+  [ -n "$sessions_root" ] || \
+    fail_delivery_verification "empty sessions root '' (expected a Pi sessions directory path)"
+}
+
+read_recorded_session_id() {
+  local meta_path="$root/$name.meta"
+  local session_ids=()
+  [ -f "$meta_path" ] || \
+    fail_delivery_verification "missing metadata '$meta_path' (expected a readable <root>/<name>.meta file)"
+  mapfile -t session_ids < <(awk -F= '$1 == "session_id" { print substr($0, index($0, "=") + 1) }' "$meta_path")
+  [ "${#session_ids[@]}" -eq 1 ] || \
+    fail_delivery_verification "found ${#session_ids[@]} session_id entries in '$meta_path' (expected exactly one)"
+  session_id="${session_ids[0]}"
+  [[ "$session_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] || \
+    fail_delivery_verification "invalid session_id '$session_id' in '$meta_path' (expected a UUID)"
+}
+
+find_session_journals() {
+  journals=()
+  [ -d "$sessions_root" ] || return 0
+  mapfile -t journals < <(
+    find "$sessions_root" -mindepth 2 -maxdepth 2 -type f \
+      -name "*${session_id}*.jsonl" -print | sort
+  )
+}
+
+journal_contains_user_marker() {
+  local journal_path="$1" marked_line
+  while IFS= read -r marked_line; do
+    if [[ "$marked_line" == *'"type":"message"'* && "$marked_line" == *'"role":"user"'* ]]; then
+      return 0
+    fi
+  done < <(grep -F -- "$marker" "$journal_path")
+  return 1
+}
+
+fail_for_journal_count() {
+  local count="${#journals[@]}"
+  fail_delivery_verification \
+    "found $count journals for session_id '$session_id' under '$sessions_root' (expected exactly one): ${journals[*]}"
+}
+
+fail_delivery_timeout() {
+  if [ "${#journals[@]}" -eq 0 ]; then
+    fail_delivery_verification \
+      "no journal for session_id '$session_id' under '$sessions_root' after ${timeout}s (expected one matching */*${session_id}*.jsonl)" \
+      "not-found"
+  fi
+  fail_delivery_verification \
+    "marker '$marker' was not found in a user-message record in '${journals[0]}' within ${timeout}s" \
+    "${journals[0]}"
+}
+
+wait_for_delivery() {
+  local started_at elapsed
+  started_at=$(date +%s)
+  while true; do
+    find_session_journals
+    [ "${#journals[@]}" -le 1 ] || fail_for_journal_count
+    if [ "${#journals[@]}" -eq 1 ] && journal_contains_user_marker "${journals[0]}"; then
+      printf 'DELIVERY=ok\nJOURNAL=%s\n' "${journals[0]}"
+      return 0
+    fi
+    elapsed=$(($(date +%s) - started_at))
+    [ "$elapsed" -lt "$timeout" ] || fail_delivery_timeout
+    sleep "$interval"
+  done
+}
+
+main() {
+  parse_delivery_args "$@"
+  validate_delivery_inputs
+  read_recorded_session_id
+  wait_for_delivery
+}
+
+main "$@"

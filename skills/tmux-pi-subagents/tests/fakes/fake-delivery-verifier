@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+count="0"
+[ ! -f "$FAKE_VERIFY_COUNT" ] || count=$(<"$FAKE_VERIFY_COUNT")
+[[ "$count" =~ ^[0-9]+$ ]] || {
+  printf 'fake-delivery-verifier: invalid count %s (expected a non-negative integer)\n' "$count" >&2
+  exit 2
+}
+count=$((count + 1))
+printf '%s\n' "$count" > "$FAKE_VERIFY_COUNT"
+
+if [ "${FAKE_VERIFY_ALWAYS_FAIL:-0}" = "1" ] || [ "$count" -eq 1 ]; then
+  printf 'DELIVERY=failed\nJOURNAL=fake-journal.jsonl\n'
+  exit 2
+fi
+printf 'DELIVERY=ok\nJOURNAL=fake-journal.jsonl\n'

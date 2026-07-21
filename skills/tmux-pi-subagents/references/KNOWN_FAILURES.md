@@ -78,7 +78,7 @@ This was especially dangerous when the caller used the function in an `if`/`&&` 
 
 **Invariant:** validate in the current shell, stop explicitly on failure, require a non-empty `%<id>`, and compare the resolved ID before any capture, send, or kill.
 
-## 5. Sending without preflight and post-send evidence
+## 5. Sending without preflight and journal evidence
 
 **BAD:**
 
@@ -90,7 +90,7 @@ tmux send-keys -t "$pane" C-m
 
 **Observed failures:** the message went to the wrong pane, remained in the input field, or was sent while the target was not ready. Claude reported delivery anyway.
 
-**Invariant:** resolve the recorded pane, capture it before sending, submit, capture again, and do not claim delivery unless the capture shows submission or Pi activity. One verified retry of `C-m` is allowed; otherwise stop and report failure.
+**Invariant:** resolve the recorded pane, capture it before sending, submit with the unmodified `Enter` key, and confirm a matching user-message record through `verify-pi-delivery`. Pane capture is secondary evidence only. On a journal miss, retry `Enter` exactly once and re-check; then stop and report `DELIVERY=failed` with the journal path.
 
 ## 6. Duplicating tmux recipes across prompts
 
@@ -142,12 +142,24 @@ watch-pi-agent "$name" &
 
 **Invariant:** after an upgrade, start a fresh Claude session and spawn fresh Pi agents. Preserve old panes only for inspection, not validation.
 
+## 11. Submitting with `send-keys C-m` to an enhanced-keyboard TUI
+
+**BAD:**
+
+```bash
+tmux send-keys -t "$pane" C-m
+```
+
+**Observed failure:** after Pi enables keyboard enhancement inside tmux, tmux with extended keys encodes this explicitly Ctrl-modified key as `ESC[109;5u`. Pi parses that CSI-u sequence as unbound `ctrl+m`, so the queued text remains in the composer. Sending the named unmodified `Enter` key delivers the submission key instead.
+
+**Invariant:** submission uses the unmodified `Enter` key (or the byte-exact `-H 0d` equivalent) and is confirmed by a session-journal user-message record, never by assumption.
+
 ## Regression checklist
 
 Before publishing a workflow revision, verify:
 
 - **Isolation test passes:** generated Pi `system.md` and `brief.md` contain the two file paths but none of this reference's negative examples, headings, tmux terms, `/poll`, or pane-address instructions.
-- Only `SKILL.md` contains a positive `tmux send-keys` recipe.
+- Only `SKILL.md` contains the operator-facing `tmux send-keys` recipe; the spawn helper contains only its one-shot launch recovery implementation.
 - Spawn uses a validated `$TMUX_PANE` `%<id>`.
 - Poll, watcher, cleanup, and replies reject non-`%<id>` targets.
 - An invalid mapping produces no pane capture or send.

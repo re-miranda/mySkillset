@@ -12,10 +12,11 @@ metadata:
 ## One workflow only
 
 1. Run `$HOME/.claude/bin/spawn-pi-agent <name> "<task>"`.
-2. Start the exact printed `WATCH=` command with Claude Code's managed Bash background execution.
-3. Confirm the Bash tool returned a background task handle before saying the watcher is active.
-4. Wait for `SIGNAL=result`, `SIGNAL=question`, `SIGNAL=pane-died`, or `SIGNAL=timeout`.
-5. Use `$HOME/.claude/bin/poll-pi-agent <name>` only for a manual status check.
+2. Confirm the spawn output contains `LAUNCH=ok`; stop and report if launch verification fails.
+3. Start the exact printed `WATCH=` command with Claude Code's managed Bash background execution.
+4. Confirm the Bash tool returned a background task handle before saying the watcher is active.
+5. Wait for `SIGNAL=result`, `SIGNAL=question`, `SIGNAL=pane-died`, or `SIGNAL=timeout`.
+6. Use `$HOME/.claude/bin/poll-pi-agent <name>` only for a manual status check.
 
 Do not use `/spawn`; it starts Claude rather than Pi. Do not manually create panes for this workflow.
 
@@ -55,14 +56,23 @@ Only after that preflight, send one short plain-ASCII reply:
 ```bash
 tmux send-keys -t "$pane" -X cancel 2>/dev/null || true
 tmux send-keys -t "$pane" -l '<reply>'
-tmux send-keys -t "$pane" C-m
+sleep 1
+tmux send-keys -t "$pane" Enter
 sleep 1
 tmux capture-pane -t "$pane" -p -S -12
 ```
 
-Inspect the final capture. Do not claim delivery unless it shows Pi reacted or the input was submitted. If the text is still in the input field, send `C-m` once more and capture once more. If it still did not submit, stop and report the failed delivery instead of guessing or targeting another pane.
+Use the unmodified `Enter` key only; Ctrl-modified or alternate Enter variants are not submission keys in Pi's enhanced-keyboard TUI. Keep the delay between literal text and Enter so the composer can settle. End every reply in plain words, such as `Read <path> and act on it.`, so no path or command autocomplete is open when Enter arrives.
 
-For long replies, write a file and send only `Read <absolute-path>` through the same verified procedure.
+Confirm delivery from Pi's session journal; the pane capture is secondary forensic evidence only:
+
+```bash
+$HOME/.claude/bin/verify-pi-delivery "$name" --marker '<distinctive reply substring>' --timeout 20
+```
+
+Do not claim delivery without `DELIVERY=ok`. On `DELIVERY=failed`, send the unmodified `Enter` key once more, run the same journal check again, and then stop and report the failed delivery with its `JOURNAL=` path if it still misses. Never retry the literal reply or target another pane.
+
+For long replies, write a file and send only `Read <absolute-path> and act on it.` through the same verified procedure.
 
 ## Multiple agents
 

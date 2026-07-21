@@ -149,6 +149,7 @@ install_claude_files() {
   copy_workflow_file "$SKILL_DIR/integrations/claude/commands/tmux-subagents.md" "$CLAUDE_DIR/commands/tmux-subagents.md" 0644
   copy_workflow_file "$SKILL_DIR/integrations/claude/commands/poll.md" "$CLAUDE_DIR/commands/poll.md" 0644
   copy_workflow_file "$SKILL_DIR/scripts/spawn-pi-agent" "$CLAUDE_DIR/bin/spawn-pi-agent" 0755
+  copy_workflow_file "$SKILL_DIR/scripts/verify-pi-delivery" "$CLAUDE_DIR/bin/verify-pi-delivery" 0755
   copy_workflow_file "$SKILL_DIR/scripts/watch-pi-agent" "$CLAUDE_DIR/bin/watch-pi-agent" 0755
   copy_workflow_file "$SKILL_DIR/scripts/poll-pi-agent" "$CLAUDE_DIR/bin/poll-pi-agent" 0755
   copy_workflow_file "$SKILL_DIR/scripts/cleanup-pi-agent" "$CLAUDE_DIR/bin/cleanup-pi-agent" 0755

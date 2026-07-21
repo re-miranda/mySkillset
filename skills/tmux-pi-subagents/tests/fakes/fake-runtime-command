@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+command_name=$(basename "$0")
+case "$command_name" in
+  pi)
+    [ "${1:-}" = "--version" ] || {
+      printf 'fake-runtime-command: unsupported pi arguments: %s (expected --version)\n' "$*" >&2
+      exit 1
+    }
+    printf 'pi 0.80.10-test-double\n'
+    ;;
+  sleep)
+    exit 0
+    ;;
+  tmux)
+    printf '%s\n' "$*" >> "$FAKE_TMUX_LOG"
+    case "${1:-}" in
+      -V) printf 'tmux 3.6b-test-double\n' ;;
+      split-window) printf '%%99\n' ;;
+      capture-pane)
+        [ "${FAKE_TMUX_CAPTURE_FAIL:-0}" != "1" ] || exit 1
+        printf 'fake Pi pane capture\n'
+        ;;
+      send-keys) exit 0 ;;
+      display-message)
+        shift
+        target=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-t" ]; then
+            target="${2:-}"
+            break
+          fi
+          shift
+        done
+        [ -n "$target" ] || {
+          printf 'fake-runtime-command: missing tmux target (expected -t %%<id>)\n' >&2
+          exit 1
+        }
+        printf '%s\n' "$target"
+        ;;
+      *)
+        printf 'fake-runtime-command: unsupported tmux arguments: %s (expected workflow command)\n' "$*" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    printf 'fake-runtime-command: unsupported command name: %s (expected pi, sleep, or tmux)\n' "$command_name" >&2
+    exit 1
+    ;;
+esac

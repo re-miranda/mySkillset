@@ -8,7 +8,12 @@ fail_test() {
 
 assert_contains() {
   local pattern="$1" path="$2"
-  grep -q "$pattern" "$path" || fail_test "expected '$pattern' in $path"
+  grep -q -- "$pattern" "$path" || fail_test "expected '$pattern' in $path"
+}
+
+assert_fixed_contains() {
+  local text="$1" path="$2"
+  grep -Fq -- "$text" "$path" || fail_test "expected literal '$text' in $path"
 }
 
 assert_exit_code() {
@@ -26,9 +31,12 @@ run_expect_failure() {
 }
 
 test_shell_syntax() {
-  bash -n "$SKILL_DIR/install.sh" \
-    "$BIN_DIR/spawn-pi-agent" "$BIN_DIR/watch-pi-agent" \
-    "$BIN_DIR/poll-pi-agent" "$BIN_DIR/cleanup-pi-agent"
+  bash -n "$SKILL_DIR/install.sh" "$SKILL_DIR/test.sh" \
+    "$BIN_DIR/spawn-pi-agent" "$BIN_DIR/verify-pi-delivery" \
+    "$BIN_DIR/watch-pi-agent" "$BIN_DIR/poll-pi-agent" \
+    "$BIN_DIR/cleanup-pi-agent" \
+    "$SKILL_DIR/tests/fakes/fake-runtime-command" \
+    "$SKILL_DIR/tests/fakes/fake-delivery-verifier"
 }
 
 test_installer_upgrade() {
@@ -40,22 +48,111 @@ test_installer_upgrade() {
   assert_contains 'managed background Bash task' "$home/CLAUDE.md"
   grep -q 'OLD RULE' "$home/CLAUDE.md" && fail_test "installer retained stale workflow block"
   [ -x "$home/bin/watch-pi-agent" ] || fail_test "installer did not install watcher"
+  [ -x "$home/bin/verify-pi-delivery" ] || fail_test "installer did not install delivery verifier"
   [ -f "$home/skills/tmux-pi-subagents/references/KNOWN_FAILURES.md" ] || \
     fail_test "installer did not install known-failures reference"
 }
 
 test_spawn_contract() {
-  local root="$SUITE_ROOT/spawn" system brief
+  local root="$SUITE_ROOT/spawn" system brief meta
   TMUX_PANE="$TMUX_PANE" "$BIN_DIR/spawn-pi-agent" --dry-run \
     --root "$root" --workdir "$PWD" test-agent 'inspect only' > "$SUITE_ROOT/spawn.out"
   system=$(find "$root/runs" -name system.md -print -quit)
   brief=$(find "$root/runs" -name brief.md -print -quit)
+  meta=$(find "$root/runs" -name meta.env -print -quit)
   assert_contains 'only communication channel' "$system"
   assert_contains 'only communication channel' "$brief"
   assert_contains '^WATCH=.*watch-pi-agent' "$SUITE_ROOT/spawn.out"
+  assert_fixed_contains '--session-id' "$SUITE_ROOT/spawn.out"
+  assert_contains '^session_id=' "$meta"
+  assert_contains '^pi_version=' "$meta"
+  assert_contains '^tmux_version=' "$meta"
   if rg -q 'tmux|send-keys|/poll|KNOWN_FAILURES|Known failures and rejected patterns|\*\*BAD:\*\*' "$system" "$brief"; then
     fail_test "Pi prompt contains maintainer-only failure material"
   fi
+}
+
+test_skill_delivery_recipe() {
+  assert_fixed_contains 'send-keys -t "$pane" Enter' "$SKILL_DIR/SKILL.md"
+  if grep -Fq -- 'C-m' "$SKILL_DIR/SKILL.md"; then
+    fail_test "SKILL.md contains the rejected C-m submission key"
+  fi
+  assert_fixed_contains 'verify-pi-delivery "$name"' "$SKILL_DIR/SKILL.md"
+}
+
+test_verify_delivery() {
+  local root="$SUITE_ROOT/delivery-state" sessions="$SUITE_ROOT/pi-sessions"
+  local session_id="123e4567-e89b-42d3-a456-426614174000"
+  local journal="$sessions/project/session-$session_id.jsonl"
+  mkdir -p "$root" "$(dirname "$journal")"
+  printf 'session_id=%s\n' "$session_id" > "$root/delivery.meta"
+  printf '%s\n' '{"type":"message","message":{"role":"user","content":"distinctive-marker"}}' > "$journal"
+  "$BIN_DIR/verify-pi-delivery" delivery --root "$root" \
+    --sessions-root "$sessions" --marker 'distinctive-marker' --timeout 1 \
+    > "$SUITE_ROOT/delivery-ok.out"
+  assert_contains '^DELIVERY=ok' "$SUITE_ROOT/delivery-ok.out"
+
+  : > "$journal"
+  run_expect_failure "$SUITE_ROOT/delivery-failed.out" "$SUITE_ROOT/delivery-failed.err" \
+    "$BIN_DIR/verify-pi-delivery" delivery --root "$root" \
+    --sessions-root "$sessions" --marker 'missing-marker' --timeout 1 --interval 1
+  assert_exit_code 2 "$last_exit_code" "delivery timeout"
+  assert_contains '^DELIVERY=failed' "$SUITE_ROOT/delivery-failed.out"
+}
+
+prepare_fake_spawn_runtime() {
+  FAKE_SPAWN_BIN="$SUITE_ROOT/fake-spawn-bin"
+  FAKE_TMUX_LOG="$SUITE_ROOT/fake-tmux.log"
+  FAKE_VERIFY_COUNT="$SUITE_ROOT/fake-verify.count"
+  mkdir -p "$FAKE_SPAWN_BIN"
+  cp "$BIN_DIR/spawn-pi-agent" "$FAKE_SPAWN_BIN/spawn-pi-agent"
+  cp "$SKILL_DIR/tests/fakes/fake-delivery-verifier" "$FAKE_SPAWN_BIN/verify-pi-delivery"
+  ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/pi"
+  ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/tmux"
+  ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/sleep"
+  export FAKE_TMUX_LOG FAKE_VERIFY_COUNT
+}
+
+test_spawn_launch_recovery() {
+  local root="$SUITE_ROOT/recovery-success"
+  : > "$FAKE_TMUX_LOG"
+  rm -f "$FAKE_VERIFY_COUNT"
+  PATH="$FAKE_SPAWN_BIN:$PATH" "$FAKE_SPAWN_BIN/spawn-pi-agent" \
+    --source-pane %900 --root "$root" --workdir "$PWD" recovery-ok 'inspect only' \
+    > "$SUITE_ROOT/recovery-success.out"
+  assert_contains '^LAUNCH=ok' "$SUITE_ROOT/recovery-success.out"
+  assert_fixed_contains 'start work on it now.' "$FAKE_TMUX_LOG"
+  assert_fixed_contains 'send-keys -t %99 Enter' "$FAKE_TMUX_LOG"
+  [ "$(<"$FAKE_VERIFY_COUNT")" -eq 2 ] || fail_test "launch recovery did not verify exactly twice"
+}
+
+test_spawn_launch_failure() {
+  local root="$SUITE_ROOT/recovery-failure" enter_count
+  : > "$FAKE_TMUX_LOG"
+  rm -f "$FAKE_VERIFY_COUNT"
+  run_expect_failure "$SUITE_ROOT/recovery-failure.out" "$SUITE_ROOT/recovery-failure.err" \
+    env PATH="$FAKE_SPAWN_BIN:$PATH" FAKE_VERIFY_ALWAYS_FAIL=1 \
+    "$FAKE_SPAWN_BIN/spawn-pi-agent" --source-pane %900 --root "$root" \
+    --workdir "$PWD" recovery-failed 'inspect only'
+  assert_exit_code 1 "$last_exit_code" "failed launch recovery"
+  assert_contains '^LAUNCH=failed' "$SUITE_ROOT/recovery-failure.out"
+  enter_count=$(grep -Fc -- 'send-keys -t %99 Enter' "$FAKE_TMUX_LOG")
+  [ "$enter_count" -eq 1 ] || fail_test "launch recovery sent Enter $enter_count times (expected exactly one)"
+  [ "$(<"$FAKE_VERIFY_COUNT")" -eq 2 ] || fail_test "failed launch did not verify exactly twice"
+}
+
+test_spawn_preflight_failure() {
+  local root="$SUITE_ROOT/preflight-failure"
+  : > "$FAKE_TMUX_LOG"
+  rm -f "$FAKE_VERIFY_COUNT"
+  run_expect_failure "$SUITE_ROOT/preflight-failure.out" "$SUITE_ROOT/preflight-failure.err" \
+    env PATH="$FAKE_SPAWN_BIN:$PATH" FAKE_VERIFY_ALWAYS_FAIL=1 FAKE_TMUX_CAPTURE_FAIL=1 \
+    "$FAKE_SPAWN_BIN/spawn-pi-agent" --source-pane %900 --root "$root" \
+    --workdir "$PWD" preflight-failed 'inspect only'
+  assert_exit_code 1 "$last_exit_code" "failed launch preflight"
+  assert_contains '^LAUNCH=failed' "$SUITE_ROOT/preflight-failure.out"
+  assert_fixed_contains "could not capture pane '%99'" "$SUITE_ROOT/preflight-failure.err"
+  [ "$(<"$FAKE_VERIFY_COUNT")" -eq 1 ] || fail_test "preflight failure unexpectedly re-verified delivery"
 }
 
 test_live_name_guard() {
@@ -143,6 +240,12 @@ main() {
   test_shell_syntax
   test_installer_upgrade
   test_spawn_contract
+  test_skill_delivery_recipe
+  test_verify_delivery
+  prepare_fake_spawn_runtime
+  test_spawn_launch_recovery
+  test_spawn_launch_failure
+  test_spawn_preflight_failure
   test_live_name_guard
   test_watcher_signals
   test_watcher_rejects_ambiguous_pane
