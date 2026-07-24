@@ -1,0 +1,297 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+FABLE_MODEL="claude-fable-5"
+
+show_usage() {
+  cat <<'USAGE'
+Usage: spawn-fable-agent [options] <slug> [--packet-file <path>]
+       spawn-fable-agent --verify <run-dir>
+
+Spawns an advisory Fable in a tmux split pane with a FRESH context. The packet is
+delivered as an @packet.md argument, avoiding TUI send-keys startup races.
+
+Fable is read-only: it answers, writes answer.md, and does not edit or commit.
+
+Options:
+  --packet-file <path>       Read the context packet from this file (else stdin)
+  --verify <run-dir>         Grade a previous run's answer.md in a NEW clean context.
+                             Refuses to reuse the answering pane. Writes verdict.md.
+  --direction, -d <dir>      Split direction: right, down, left, up (default: down)
+  --workdir <path>           Working directory for Fable (default: current directory)
+  --orchestrator <pane>      Claude pane ID (default: $TMUX_PANE; must be %<number>)
+  --root <path>              Run state root (default: /tmp/fable-runs)
+  --dry-run                  Write files and print the launch command, but do not spawn
+  --help, -h                 Show this help
+
+Every invocation creates a new run directory and a new pane. There is deliberately no
+way to resume an existing Fable session: stale context is the failure mode this tool
+exists to prevent. Ask a follow-up by writing a new packet that inlines the prior answer.
+USAGE
+}
+
+fail_spawn_fable_agent() {
+  printf 'spawn-fable-agent: %s\n' "$1" >&2
+  exit 1
+}
+
+quote_shell_arg() {
+  printf '%q' "$1"
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail_spawn_fable_agent "required command not found: $1"
+}
+
+resolve_orchestrator_pane() {
+  local resolved=""
+  [ -n "$orchestrator" ] || orchestrator="${TMUX_PANE:-}"
+  [[ "$orchestrator" =~ ^%[0-9]+$ ]] || \
+    fail_spawn_fable_agent "invalid orchestrator pane '$orchestrator' (expected stable tmux pane ID like %3 via --orchestrator or TMUX_PANE)"
+  require_command tmux
+  resolved=$(tmux display-message -t "$orchestrator" -p '#{pane_id}' 2>/dev/null || true)
+  [ "$resolved" = "$orchestrator" ] || \
+    fail_spawn_fable_agent "orchestrator pane '$orchestrator' was not found (expected a live tmux pane ID)"
+}
+
+validate_slug() {
+  local slug="$1"
+  [[ "$slug" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] || \
+    fail_spawn_fable_agent "invalid slug '$slug' (expected 1-64 chars: letters, numbers, dot, underscore, dash; must start alphanumeric)"
+}
+
+read_stdin_packet() {
+  if [ -t 0 ]; then
+    printf ''
+    return
+  fi
+  cat
+}
+
+write_text_file() {
+  printf '%s\n' "$2" > "$1"
+}
+
+split_args_for_direction() {
+  case "$1" in
+    right) printf '%s\n' '-h' ;;
+    left)  printf '%s\n' '-h'; printf '%s\n' '-b' ;;
+    down)  printf '%s\n' '-v' ;;
+    up)    printf '%s\n' '-v'; printf '%s\n' '-b' ;;
+    *) fail_spawn_fable_agent "invalid direction '$1' (expected right, left, down, up)" ;;
+  esac
+}
+
+write_answer_system_prompt() {
+  local path="$1" answer_path="$2" run_dir="$3"
+  cat > "$path" <<EOF
+You are Fable, an advisory consultant. You are ANSWERING a focused question.
+
+Non-negotiable:
+- You are READ-ONLY on the repository. Do not edit, create, or delete any repository
+  file. Do not run git commit, git push, or any command that mutates the working tree.
+  Another agent may be editing these files concurrently; writing would clobber them.
+- Write your answer to $answer_path. That file is the deliverable. An answer that exists
+  only in the terminal does not exist -- scrollback is lost.
+- You may freely read the repository and run read-only commands to ground your answer.
+- Reading and writing anything under $run_dir is pre-approved.
+
+How to answer:
+- The packet gives you a goal, the open judgment call, and a starting context slice. The
+  slice is where you start, not a fence. Read further when you need to.
+- Nobody has told you HOW to answer. That is deliberate. Use your judgment.
+- Check your answer against the packet's done bar before you return. If the answer does
+  not clear the bar, say so plainly rather than dressing it up.
+- Ground every factual claim in a real file path, symbol, or observed behavior. Never
+  invent paths, symbols, or behavior. Say "I could not verify X" when you could not.
+- If the question rests on a false premise, say that first. It is the most valuable
+  thing you can return.
+
+Do not implement. Do not plan work for yourself. Answer, then stop.
+EOF
+}
+
+write_verify_system_prompt() {
+  local path="$1" verdict_path="$2" run_dir="$3"
+  cat > "$path" <<EOF
+You are Fable, grading someone else's answer with a fresh context. You did not write it.
+
+Your job is adversarial: TRY TO PROVE THE ANSWER DOES NOT MEET THE BAR.
+
+Non-negotiable:
+- You are READ-ONLY on the repository. Do not edit, create, or delete any repository
+  file. Do not commit.
+- Write your verdict to $verdict_path. Reading and writing anything under $run_dir is
+  pre-approved.
+
+How to grade:
+- Check every factual claim in the answer against the repository. Name each claim you
+  could not verify.
+- Look for assumptions the question did not license -- a solution smuggled in as a
+  premise, a constraint invented, a decision quietly made.
+- Hold the answer against the stated done bar, not against your own taste.
+- State a verdict: MEETS BAR, or DOES NOT MEET BAR with the specific reason.
+- A grader that finds nothing has usually not looked hard enough. But do not manufacture
+  objections -- if it genuinely holds up, say so and say why you are confident.
+EOF
+}
+
+write_verify_packet() {
+  local path="$1" question_path="$2" answer_path="$3"
+  {
+    printf '# Verification pass\n\n'
+    printf 'Below is the original packet, then the answer someone gave.\n'
+    printf 'Try to prove the answer does not meet the packet'"'"'s done bar.\n'
+    printf 'Check every factual claim against the repository.\n'
+    printf 'Write your verdict to verdict.md in this run directory.\n\n'
+    printf -- '---\n\n# ORIGINAL PACKET\n\n'
+    cat "$question_path"
+    printf '\n\n---\n\n# ANSWER UNDER REVIEW\n\n'
+    cat "$answer_path"
+  } > "$path"
+}
+
+resolve_verify_run_dir() {
+  local source_dir="$1"
+  [ -d "$source_dir" ] || fail_spawn_fable_agent "run dir not found: $source_dir"
+  [ -f "$source_dir/answer.md" ] || \
+    fail_spawn_fable_agent "no answer.md in '$source_dir'. Expected a completed run to grade."
+  [ -s "$source_dir/answer.md" ] || \
+    fail_spawn_fable_agent "answer.md in '$source_dir' is empty. Expected a completed answer to grade."
+  [ -f "$source_dir/packet.md" ] || \
+    fail_spawn_fable_agent "no packet.md in '$source_dir'. Expected the original question to grade against."
+}
+
+refuse_pane_reuse() {
+  local source_dir="$1" orchestrator="$2"
+  local prior_pane=""
+  [ -f "$source_dir/meta.env" ] || return 0
+  prior_pane=$(sed -n 's/^pane=//p' "$source_dir/meta.env" | head -1)
+  [ -n "$prior_pane" ] || return 0
+  [ "$prior_pane" != "$orchestrator" ] || \
+    fail_spawn_fable_agent "refusing to grade in the answering pane '$prior_pane'; the builder must never grade its own work"
+}
+
+main() {
+  local slug="" packet_file="" verify_dir="" direction="down" workdir="" orchestrator=""
+  local root="/tmp/fable-runs" dry_run=0
+
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --help|-h) show_usage; exit 0 ;;
+      --packet-file) packet_file="${2:-}"; shift 2 ;;
+      --verify) verify_dir="${2:-}"; shift 2 ;;
+      --direction|-d) direction="${2:-}"; shift 2 ;;
+      --workdir) workdir="${2:-}"; shift 2 ;;
+      --orchestrator) orchestrator="${2:-}"; shift 2 ;;
+      --root) root="${2:-}"; shift 2 ;;
+      --dry-run) dry_run=1; shift ;;
+      --) shift; break ;;
+      -*) fail_spawn_fable_agent "unknown option: $1" ;;
+      *) [ -n "$slug" ] || slug="$1"; shift ;;
+    esac
+  done
+
+  [ -n "$workdir" ] || workdir=$(pwd)
+  [ -d "$workdir" ] || fail_spawn_fable_agent "workdir not found: $workdir"
+  resolve_orchestrator_pane
+  require_command claude
+
+  local mode="answer"
+  if [ -n "$verify_dir" ]; then
+    mode="verify"
+    resolve_verify_run_dir "$verify_dir"
+    refuse_pane_reuse "$verify_dir" "$orchestrator"
+    [ -n "$slug" ] || slug="verify-$(basename "$verify_dir" | tr -c 'A-Za-z0-9._-' '-' | cut -c1-40)"
+  fi
+
+  [ -n "$slug" ] || { show_usage >&2; exit 2; }
+  validate_slug "$slug"
+
+  local stamp run_dir packet_path system_path answer_path verdict_path meta_path command_path
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  run_dir="$root/${stamp}-${slug}"
+  [ ! -e "$run_dir" ] || run_dir="$root/${stamp}-${slug}-$$"
+  packet_path="$run_dir/packet.md"
+  system_path="$run_dir/system.md"
+  answer_path="$run_dir/answer.md"
+  verdict_path="$run_dir/verdict.md"
+  meta_path="$run_dir/meta.env"
+  command_path="$run_dir/launch.sh"
+
+  mkdir -p "$run_dir"
+
+  local deliverable_path
+  if [ "$mode" = "verify" ]; then
+    write_verify_packet "$packet_path" "$verify_dir/packet.md" "$verify_dir/answer.md"
+    write_verify_system_prompt "$system_path" "$verdict_path" "$run_dir"
+    deliverable_path="$verdict_path"
+    printf '' > "$verdict_path"
+  else
+    local packet=""
+    if [ -n "$packet_file" ]; then
+      [ -f "$packet_file" ] || fail_spawn_fable_agent "packet file not found: $packet_file"
+      packet=$(cat "$packet_file")
+    else
+      packet=$(read_stdin_packet)
+    fi
+    [ -n "${packet//[[:space:]]/}" ] || \
+      fail_spawn_fable_agent "empty packet; pass --packet-file or pipe the packet on stdin"
+    write_text_file "$packet_path" "$packet"
+    write_answer_system_prompt "$system_path" "$answer_path" "$run_dir"
+    deliverable_path="$answer_path"
+    printf '' > "$answer_path"
+  fi
+
+  local workdir_q system_q packet_arg_q model_q dir_q fable_cmd
+  workdir_q=$(quote_shell_arg "$workdir")
+  system_q=$(quote_shell_arg "$(cat "$system_path")")
+  packet_arg_q=$(quote_shell_arg "@$packet_path")
+  model_q=$(quote_shell_arg "$FABLE_MODEL")
+  dir_q=$(quote_shell_arg "$run_dir")
+  fable_cmd="cd $workdir_q && claude --model $model_q --append-system-prompt $system_q --add-dir $dir_q $packet_arg_q"
+
+  write_text_file "$command_path" "#!/usr/bin/env bash
+$fable_cmd"
+  chmod 700 "$command_path"
+
+  write_meta() {
+    cat > "$meta_path" <<EOF
+slug=$slug
+mode=$mode
+pane=$1
+run_dir=$run_dir
+packet_path=$packet_path
+system_path=$system_path
+deliverable_path=$deliverable_path
+source_run_dir=$verify_dir
+workdir=$workdir
+orchestrator=$orchestrator
+model=$FABLE_MODEL
+started_at=$stamp
+EOF
+  }
+
+  if [ "$dry_run" = "1" ]; then
+    write_meta ""
+    printf 'DRY_RUN=1\nSLUG=%s\nMODE=%s\nRUN_DIR=%s\nPACKET=%s\nDELIVERABLE=%s\nCOMMAND=%s\n' \
+      "$slug" "$mode" "$run_dir" "$packet_path" "$deliverable_path" "$fable_cmd"
+    exit 0
+  fi
+
+  local split_flags=()
+  mapfile -t split_flags < <(split_args_for_direction "$direction")
+  local pane
+  pane=$(tmux split-window "${split_flags[@]}" -t "$orchestrator" -P -F '#{pane_id}' "$fable_cmd")
+  [ -n "$pane" ] || fail_spawn_fable_agent "tmux split-window did not return a pane id"
+
+  mkdir -p "$root"
+  printf '%s\n' "$pane" > "$root/$slug.pane"
+  ln -sfn "$deliverable_path" "$root/$slug.answer.md"
+  write_meta "$pane"
+
+  printf 'SLUG=%s\nMODE=%s\nPANE=%s\nRUN_DIR=%s\nPACKET=%s\nDELIVERABLE=%s\nPOLL=/poll %s\n' \
+    "$slug" "$mode" "$pane" "$run_dir" "$packet_path" "$deliverable_path" "$slug"
+}
+
+main "$@"

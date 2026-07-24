@@ -22,6 +22,7 @@
     ],
     "scripts": [
       "~/.claude/bin/spawn-pi-agent",
+      "~/.claude/bin/spawn-fable-agent",
       "~/.claude/bin/verify-pi-delivery",
       "~/.claude/bin/watch-pi-agent",
       "~/.claude/bin/poll-pi-agent",

@@ -32,7 +32,8 @@ run_expect_failure() {
 
 test_shell_syntax() {
   bash -n "$SKILL_DIR/install.sh" "$SKILL_DIR/test.sh" \
-    "$BIN_DIR/spawn-pi-agent" "$BIN_DIR/verify-pi-delivery" \
+    "$BIN_DIR/spawn-pi-agent" "$BIN_DIR/spawn-fable-agent" \
+    "$BIN_DIR/verify-pi-delivery" \
     "$BIN_DIR/watch-pi-agent" "$BIN_DIR/poll-pi-agent" \
     "$BIN_DIR/cleanup-pi-agent" \
     "$SKILL_DIR/tests/fakes/fake-runtime-command" \
@@ -48,6 +49,7 @@ test_installer_upgrade() {
   assert_contains 'managed background Bash task' "$home/CLAUDE.md"
   grep -q 'OLD RULE' "$home/CLAUDE.md" && fail_test "installer retained stale workflow block"
   [ -x "$home/bin/watch-pi-agent" ] || fail_test "installer did not install watcher"
+  [ -x "$home/bin/spawn-fable-agent" ] || fail_test "installer did not install Fable spawner"
   [ -x "$home/bin/verify-pi-delivery" ] || fail_test "installer did not install delivery verifier"
   [ -f "$home/skills/tmux-pi-subagents/references/KNOWN_FAILURES.md" ] || \
     fail_test "installer did not install known-failures reference"
@@ -111,6 +113,25 @@ prepare_fake_spawn_runtime() {
   ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/tmux"
   ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/sleep"
   export FAKE_TMUX_LOG FAKE_VERIFY_COUNT
+}
+
+test_fable_orchestrator_resolution() {
+  local root="$SUITE_ROOT/fable" packet="$SUITE_ROOT/fable-packet.md"
+  printf 'Inspect only.\n' > "$packet"
+  : > "$FAKE_TMUX_LOG"
+  ln -s "$SKILL_DIR/tests/fakes/fake-runtime-command" "$FAKE_SPAWN_BIN/claude"
+  TMUX_PANE=%900 PATH="$FAKE_SPAWN_BIN:$PATH" "$BIN_DIR/spawn-fable-agent" \
+    --root "$root" --workdir "$PWD" --packet-file "$packet" fable-default > "$SUITE_ROOT/fable.out"
+  assert_contains '^PANE=%99' "$SUITE_ROOT/fable.out"
+  assert_fixed_contains 'display-message -t %900 -p #{pane_id}' "$FAKE_TMUX_LOG"
+  assert_fixed_contains 'split-window -v -t %900' "$FAKE_TMUX_LOG"
+  : > "$FAKE_TMUX_LOG"
+  run_expect_failure "$SUITE_ROOT/fable-invalid.out" "$SUITE_ROOT/fable-invalid.err" \
+    env PATH="$FAKE_SPAWN_BIN:$PATH" "$BIN_DIR/spawn-fable-agent" --dry-run \
+    --orchestrator 0.1 --root "$root-invalid" --packet-file "$packet" fable-invalid
+  [ "$last_exit_code" -ne 0 ] || fail_test "Fable spawn accepted an ambiguous orchestrator pane"
+  assert_contains "invalid orchestrator pane '0.1'" "$SUITE_ROOT/fable-invalid.err"
+  [ ! -s "$FAKE_TMUX_LOG" ] || fail_test "invalid Fable target reached tmux"
 }
 
 test_spawn_launch_recovery() {
@@ -243,6 +264,7 @@ main() {
   test_skill_delivery_recipe
   test_verify_delivery
   prepare_fake_spawn_runtime
+  test_fable_orchestrator_resolution
   test_spawn_launch_recovery
   test_spawn_launch_failure
   test_spawn_preflight_failure
