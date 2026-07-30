@@ -1,0 +1,42 @@
+{
+  "name": "tmux-subagents",
+  "version": "2.0.0",
+  "license": "0BSD",
+  "entrypoint": "SKILL.md",
+  "description": "Pi or Claude Code orchestrates Pi- or Claude-backed children through harness-native lifecycle adapters.",
+  "requirements": [
+    "claude-code and/or pi",
+    "pi-interactive-subagents for Pi orchestration",
+    "tmux and bash for the Claude-to-Pi bridge"
+  ],
+  "validationCommand": "bash test.sh",
+  "bridgeStateRoot": "/tmp/claude-agents",
+  "installs": {
+    "claudeSkill": "~/.claude/skills/tmux-subagents",
+    "piSkill": "~/.pi/agent/skills/tmux-subagents",
+    "conditionalPiAgents": [
+      "~/.pi/agent/agents/claude-code.md (requires extension manual-permissions-v1 capability)"
+    ],
+    "commands": [
+      "~/.claude/commands/tmux-subagents.md",
+      "~/.claude/commands/poll.md"
+    ],
+    "scripts": [
+      "~/.claude/bin/spawn-pi-agent",
+      "~/.claude/bin/verify-pi-delivery",
+      "~/.claude/bin/watch-pi-agent",
+      "~/.claude/bin/poll-pi-agent",
+      "~/.claude/bin/cleanup-pi-agent"
+    ],
+    "claudeAddendum": "upsert marked block in ~/.claude/CLAUDE.md",
+    "tmuxAddendum": "optional marked block in ~/.tmux.conf"
+  },
+  "safety": {
+    "nativeLifecycle": "Pi and Claude children use their parent harness's native lifecycle whenever available",
+    "bridgeScope": "file and watcher signaling is limited to Claude-to-Pi",
+    "claudePermissions": "manual-permissions-v1 capability; option parsing terminates before task text",
+    "legacyMigration": "exact released signatures only; retired skills are backed up outside discovery roots",
+    "paneAddressing": "validated tmux %<id> only",
+    "negativeExamples": "maintainer-only; excluded from generated child prompts"
+  }
+}

@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+extension_root=${1:-}
+[ -n "$extension_root" ] || {
+  printf 'probe-claude-child-policy: missing extension root\n' >&2
+  exit 2
+}
+command -v node >/dev/null 2>&1 || {
+  printf 'probe-claude-child-policy: node is required to verify %s\n' "$extension_root" >&2
+  exit 2
+}
+
+node --input-type=module - "$extension_root" <<'NODE'
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const extensionRoot = process.argv[2];
+const manifestPath = resolve(extensionRoot, "package.json");
+const sourceDir = resolve(extensionRoot, "pi-extension/subagents");
+const helperPath = resolve(sourceDir, "claude-command.ts");
+const indexSource = await readFile(resolve(sourceDir, "index.ts"), "utf8");
+const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const helper = await import(pathToFileURL(helperPath).href);
+const expectedPolicy = "manual-permissions-v1";
+const declaredPolicy = manifest.pi?.capabilities?.claudeCodeLaunchPolicy;
+if (declaredPolicy !== expectedPolicy || helper.CLAUDE_LAUNCH_POLICY !== expectedPolicy) {
+  throw new Error(`extension '${extensionRoot}' must declare and export '${expectedPolicy}', found manifest '${declaredPolicy}' and helper '${helper.CLAUDE_LAUNCH_POLICY}'`);
+}
+const requiredWiring = ["buildClaudeLaunchArgs({", "cmdParts.push(...claudeArgs.map(shellEscape))"];
+if (requiredWiring.some((snippet) => !indexSource.includes(snippet)) || indexSource.includes("--dangerously-skip-permissions")) {
+  throw new Error(`extension '${extensionRoot}' does not wire the verified Claude argument builder or contains a bypass flag`);
+}
+const task = '--settings={"hooks":{"SessionStart":[]}}';
+const resumeSessionId = "--permission-mode=bypassPermissions";
+const actual = helper.buildClaudeLaunchArgs({
+  pluginDir: "--settings=/tmp/plugin.json",
+  model: "--permission-mode=bypassPermissions",
+  systemPrompt: "--plugin-dir=/tmp/untrusted",
+  resumeSessionId,
+  task,
+});
+const expected = [
+  "--permission-mode",
+  "manual",
+  "--plugin-dir=--settings=/tmp/plugin.json",
+  "--model=--permission-mode=bypassPermissions",
+  "--append-system-prompt=--plugin-dir=/tmp/untrusted",
+  `--resume=${resumeSessionId}`,
+  "--",
+  task,
+];
+if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  throw new Error(`extension '${extensionRoot}' returned ${JSON.stringify(actual)}; expected ${JSON.stringify(expected)}`);
+}
+NODE

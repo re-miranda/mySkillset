@@ -42,9 +42,9 @@ Update my shared agent skills from the local agent-skills repository. Do not res
 
 Read [`SKILLS.md`](SKILLS.md) for what each skill does, when to use it, and how it installs. Models should read only the selected skill's `SKILL.md` during normal work; maintainer references are progressive-disclosure material.
 
-### `tmux-pi-subagents`
+### `tmux-subagents`
 
-Claude Code delegates work to Pi companions in tmux while keeping decision ownership. Pi reports through watched files; stable pane IDs are used only when Claude must reply. See [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/README.md).
+Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
 
 ### `rolling-code-audit`
 

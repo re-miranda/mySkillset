@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "pi": {
+    "capabilities": {
+      "claudeCodeLaunchPolicy": "manual-permissions-v1"
+    }
+  }
+}

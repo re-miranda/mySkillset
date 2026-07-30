@@ -8,8 +8,9 @@ show_usage() {
 Usage: spawn-fable-agent [options] <slug> [--packet-file <path>]
        spawn-fable-agent --verify <run-dir>
 
-Spawns an advisory Fable in a tmux split pane with a FRESH context. The packet is
-delivered as an @packet.md argument, avoiding TUI send-keys startup races.
+Historical unsupported helper retained only for stable-pane regression coverage; the
+installer does not expose it as a generic subagent route. It spawns an advisory Fable
+in a tmux split pane with a fresh context.
 
 Fable is read-only: it answers, writes answer.md, and does not edit or commit.
 
@@ -290,8 +291,9 @@ EOF
   ln -sfn "$deliverable_path" "$root/$slug.answer.md"
   write_meta "$pane"
 
-  printf 'SLUG=%s\nMODE=%s\nPANE=%s\nRUN_DIR=%s\nPACKET=%s\nDELIVERABLE=%s\nPOLL=/poll %s\n' \
-    "$slug" "$mode" "$pane" "$run_dir" "$packet_path" "$deliverable_path" "$slug"
+  printf 'SLUG=%s\nMODE=%s\nPANE=%s\nRUN_DIR=%s\nPACKET=%s\nDELIVERABLE=%s\nRESULT=%s\n' \
+    "$slug" "$mode" "$pane" "$run_dir" "$packet_path" "$deliverable_path" \
+    "$root/$slug.answer.md"
 }
 
 main "$@"

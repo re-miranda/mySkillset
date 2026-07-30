@@ -11,16 +11,16 @@ This is the authoritative root-level guide to the skills in this repository.
 
 ## Available skills
 
-### `tmux-pi-subagents`
+### `tmux-subagents`
 
-- **Path:** [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/)
-- **Purpose:** Let Claude Code orchestrate one or more Pi companions in tmux split panes while Claude retains consequential decisions.
-- **When to use:** Requests to delegate through Pi, spawn Pi companions, or run split-pane Pi agents with automatic completion/blocker notification.
-- **When not to use:** Pi's own internal subagent extension, Claude-only `/spawn` windows, or environments without tmux.
-- **Installs:** Claude skill, `/spawn-pi` and `/poll` commands, spawn/watch/poll/cleanup scripts, a marked global Claude protocol block, and optional tmux key settings.
-- **Communication:** Pi writes `result.md` or `question.md`; only Claude may send a necessary tmux reply after validating the recorded stable `%<pane-id>`.
-- **Validation:** `bash skills/tmux-pi-subagents/test.sh`
-- **Maintainer warning:** Read `references/KNOWN_FAILURES.md` before changing routing or signaling. Its rejected examples must never enter generated Pi prompts.
+- **Path:** [`skills/tmux-subagents`](skills/tmux-subagents/)
+- **Purpose:** Let Pi or Claude Code orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters.
+- **When to use:** Subagent, companion-agent, parallel delegation, reviewer, scout, worker, or split-pane requests where either harness may own the parent role.
+- **When not to use:** Environments without the selected harness integration, or attempts to mix two lifecycle mechanisms for one child.
+- **Installs:** The shared skill for both Pi and Claude, Pi's `claude-code` child definition only while the extension passes the `manual-permissions-v1` probe, Claude's canonical `/tmux-subagents` and bridge-only `/poll` commands, Claude-to-Pi helper scripts, a marked Claude routing block, and optional tmux key settings.
+- **Communication:** Pi parents use the interactive-subagents extension; Claude parents use native Agents for Claude children and the file/watcher bridge only for Pi children.
+- **Validation:** `bash skills/tmux-subagents/test.sh`
+- **Maintainer warning:** Read `references/KNOWN_FAILURES.md` before changing routing or signaling. Its rejected examples must never enter generated child prompts.
 
 ### `rolling-code-audit`
 

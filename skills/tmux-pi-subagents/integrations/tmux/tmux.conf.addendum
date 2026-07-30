@@ -1,5 +1,0 @@
-# BEGIN CLAUDE-PI-TMUX-WORKFLOW
-# Forward modified keys reliably to Pi/Claude inside tmux.
-set -g extended-keys on
-set -g extended-keys-format csi-u
-# END CLAUDE-PI-TMUX-WORKFLOW

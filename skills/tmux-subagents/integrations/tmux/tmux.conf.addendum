@@ -1,0 +1,5 @@
+# BEGIN TMUX-SUBAGENTS-WORKFLOW
+# Forward modified keys reliably to interactive agent TUIs inside tmux.
+set -g extended-keys on
+set -g extended-keys-format csi-u
+# END TMUX-SUBAGENTS-WORKFLOW
