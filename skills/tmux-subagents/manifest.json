@@ -1,6 +1,6 @@
 {
   "name": "tmux-subagents",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "license": "0BSD",
   "entrypoint": "SKILL.md",
   "description": "Pi or Claude Code orchestrates Pi- or Claude-backed children through harness-native lifecycle adapters.",

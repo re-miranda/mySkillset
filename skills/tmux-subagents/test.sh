@@ -352,10 +352,32 @@ test_watcher_signals() {
   printf 'done\n' > "$root/done.result.md"
   "$BIN_DIR/watch-pi-agent" --root "$root" --timeout 1 done > "$SUITE_ROOT/watch-result.out"
   assert_contains '^SIGNAL=result' "$SUITE_ROOT/watch-result.out"
+  assert_contains '^RESULT_PATH=.*completed-' "$SUITE_ROOT/watch-result.out"
   printf 'question\n' > "$root/ask.question.md"
   "$BIN_DIR/watch-pi-agent" --root "$root" --timeout 1 ask > "$SUITE_ROOT/watch-question.out"
   assert_contains '^SIGNAL=question' "$SUITE_ROOT/watch-question.out"
   assert_contains '^QUESTION_PATH=.*pending-' "$SUITE_ROOT/watch-question.out"
+}
+
+test_watcher_result_rearm() {
+  local root="$SUITE_ROOT/watch-rearm" run_dir="$SUITE_ROOT/watch-rearm-run" first_path second_path
+  mkdir -p "$root" "$run_dir"
+  ln -s "$run_dir/result.md" "$root/reused.result.md"
+  printf 'round one\n' > "$run_dir/result.md"
+  "$BIN_DIR/watch-pi-agent" --root "$root" --timeout 1 reused > "$SUITE_ROOT/watch-rearm-first.out"
+  first_path=$(awk -F= '/^RESULT_PATH=/{print $2}' "$SUITE_ROOT/watch-rearm-first.out")
+  [ -f "$first_path" ] || fail_test "first watcher did not preserve its result"
+  [ -L "$root/reused.result.md" ] && [ ! -e "$root/reused.result.md" ] || \
+    fail_test "result watcher did not leave the active link dangling"
+  run_expect_failure "$SUITE_ROOT/watch-rearm-wait.out" "$SUITE_ROOT/watch-rearm-wait.err" \
+    "$BIN_DIR/watch-pi-agent" --root "$root" --interval 0 --timeout 0 reused
+  assert_exit_code 2 "$last_exit_code" "re-armed watcher with no new result"
+  assert_contains '^SIGNAL=timeout' "$SUITE_ROOT/watch-rearm-wait.out"
+  printf 'round two\n' > "$run_dir/result.md"
+  "$BIN_DIR/watch-pi-agent" --root "$root" --timeout 1 reused > "$SUITE_ROOT/watch-rearm-second.out"
+  second_path=$(awk -F= '/^RESULT_PATH=/{print $2}' "$SUITE_ROOT/watch-rearm-second.out")
+  [ -f "$second_path" ] && [ "$second_path" != "$first_path" ] || \
+    fail_test "second watcher did not preserve a distinct result"
 }
 
 test_watcher_timeout() {
@@ -447,6 +469,7 @@ run_bridge_launch_tests() {
 
 run_bridge_state_tests() {
   test_watcher_signals
+  test_watcher_result_rearm
   test_watcher_timeout
   test_watcher_rejects_ambiguous_pane
   test_poll_rejects_ambiguous_pane

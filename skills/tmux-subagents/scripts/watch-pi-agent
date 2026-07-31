@@ -8,8 +8,7 @@ Usage: watch-pi-agent [options] <name>
 Blocks until the Pi agent <name> finishes, asks a question, its pane dies,
 or the timeout is reached. Claude should launch this in the background after
 spawning Pi; when it exits, the harness wakes Claude without touching input.
-Question signals are moved to a preserved *.pending-*.md file before exit.
-
+Result and question signals are moved to preserved per-round files before exit.
 Options:
   --root <path>       Agent state root (default: /tmp/claude-agents)
   --interval <sec>    Poll interval in seconds (default: 2)
@@ -58,13 +57,18 @@ resolved_signal_target() {
   printf '%s' "$path"
 }
 
-preserve_question_signal() {
-  local link_path="$1" target_path pending_path stamp
+preserve_file_signal() {
+  local kind="$1" link_path="$2" target_path preserved_path stamp suffix
   target_path=$(resolved_signal_target "$link_path")
+  case "$kind" in
+    result) suffix="completed" ;;
+    question) suffix="pending" ;;
+    *) fail_watch_pi_agent "cannot preserve unknown signal kind '$kind'" ;;
+  esac
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  pending_path="${target_path%.md}.pending-${stamp}-$$.md"
-  mv "$target_path" "$pending_path"
-  printf '%s' "$pending_path"
+  preserved_path="${target_path%.md}.${suffix}-${stamp}-$$.md"
+  mv "$target_path" "$preserved_path"
+  printf '%s' "$preserved_path"
 }
 
 recorded_pane_ref() {
@@ -109,11 +113,12 @@ check_file_signals() {
   question_path=$(question_signal_path "$root" "$name")
 
   if [ -f "$result_path" ]; then
+    result_path=$(preserve_file_signal "result" "$result_path")
     print_signal "result" "$name" "$elapsed" "$result_path"
     exit 0
   fi
   if [ -f "$question_path" ]; then
-    question_path=$(preserve_question_signal "$question_path")
+    question_path=$(preserve_file_signal "question" "$question_path")
     print_signal "question" "$name" "$elapsed" "$question_path"
     exit 0
   fi

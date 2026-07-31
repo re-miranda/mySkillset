@@ -20,10 +20,19 @@ Pi writes one assigned path:
 - `result.md` when finished.
 - `question.md` when blocked.
 
+The watcher consumes every signal before exit: results move to a preserved
+`*.completed-*.md` path and questions move to `*.pending-*.md`. The printed
+`RESULT_PATH` or `QUESTION_PATH` is the preserved readable file; the active
+signal symlink is left dangling so another round cannot observe stale output.
+
 Pi must not target Claude's pane or invent another signaling mechanism. On watcher wake:
 
-- `result`: read `RESULT_PATH`, validate the work, synthesize, and report.
-- `question`: read `QUESTION_PATH`, decide, reply through the verified procedure below, then start a new managed watcher.
+- `result`: read the preserved `RESULT_PATH`, validate the work, synthesize, and report. For an explicit follow-up to the same child, send the reply through the verified procedure below and start a new managed watcher.
+- `question`: read the preserved `QUESTION_PATH`, decide, reply through the verified procedure below, then start a new managed watcher.
+
+Before re-arming a watcher for a reused child, require both active signal links
+to be dangling. A pre-existing terminal file means the installed workflow is
+stale or was bypassed; stop instead of accepting an elapsed-zero signal.
 - `pane-died`: inspect the run files and report the crash.
 - `timeout`: report that no file signal arrived.
 

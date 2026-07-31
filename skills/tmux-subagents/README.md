@@ -59,7 +59,7 @@ Maintainer-only failures live in [`references/KNOWN_FAILURES.md`](references/KNO
 bash skills/tmux-subagents/test.sh
 ```
 
-The suite covers install convergence and policy downgrade, every released migration signature, backup-safe discovery, atomic collision preflight, file-mode preservation, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, watcher result/question/timeout signals, name reuse, and ambiguous-target rejection.
+The suite covers install convergence and policy downgrade, every released migration signature, backup-safe discovery, atomic collision preflight, file-mode preservation, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, consumed watcher signals, stale-result re-arm and distinct second-round results, timeout handling, name reuse, and ambiguous-target rejection.
 
 ## Files
 

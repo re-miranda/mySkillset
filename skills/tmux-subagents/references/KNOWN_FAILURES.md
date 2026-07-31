@@ -202,6 +202,21 @@ tmux send-keys -t "$pane" C-m
 
 **Invariant:** the Fable launcher is not installed or advertised. Its historical fixture remains only to protect the stable orchestrator-pane regression and reports its own result path.
 
+## 18. Re-arming a watcher with a stale terminal file
+
+**BAD:** starting a second managed watcher for a reused Pi child while the
+previous round's `result.md` still exists.
+
+**Observed failure:** the new watcher immediately emitted `SIGNAL=result` with
+`ELAPSED=0`, treating the previous round as the new completion. The parent could
+then report stale work or miss the actual second-round result.
+
+**Invariant:** the watcher consumes every result and question before it exits.
+It moves results to a unique `completed-*` path and questions to a unique
+`pending-*` path, reports that preserved path, and leaves the active signal link
+dangling. Re-arming without new output must wait or time out; a later write from
+the same child must produce a distinct preserved result.
+
 ## Regression checklist
 
 Before publishing a workflow revision, verify:
@@ -213,4 +228,4 @@ Before publishing a workflow revision, verify:
 - An invalid mapping produces no pane capture or send.
 - Live name reuse fails before links are replaced.
 - Installer tests cover fresh install, marked-block upgrade, every released legacy signature, installer-generated backups, discovery-safe archival, whole-install collision preflight, mode preservation, safe-to-unsafe policy transition, and idempotence.
-- Watcher tests cover result, question, pane death, and timeout.
+- Watcher tests cover consumed result/question paths, stale-result re-arm, a distinct second-round result, pane death, and timeout.

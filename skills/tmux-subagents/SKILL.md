@@ -4,7 +4,7 @@ description: Delegate work from either Pi or Claude Code to Pi- or Claude-backed
 license: 0BSD
 compatibility: Requires Claude Code and/or Pi. Pi orchestration requires pi-interactive-subagents; Claude children require its manual-permissions-v1 capability. The Claude-to-Pi bridge additionally requires Pi, tmux, and Bash.
 metadata:
-  version: "2.0.0"
+  version: "2.0.1"
 ---
 
 # Tmux Subagents
