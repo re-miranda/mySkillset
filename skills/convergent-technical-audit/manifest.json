@@ -1,0 +1,33 @@
+{
+  "name": "convergent-technical-audit",
+  "version": "0.1.0",
+  "license": "0BSD",
+  "entrypoint": "SKILL.md",
+  "description": "Bounded evidence-backed audit of any technical artifact: frozen inputs, sequential lens coverage, conservative independent verification, and two clean generalist rounds, producing a Markdown report and append-only JSONL ledger without rewriting the artifact.",
+  "requirements": [
+    "pi-or-claude-code",
+    "native-subagent-session-facility",
+    "git",
+    "bash",
+    "python3"
+  ],
+  "validationCommand": "bash test.sh",
+  "installs": {
+    "skills": [
+      "~/.pi/agent/skills/convergent-technical-audit/SKILL.md",
+      "~/.claude/skills/convergent-technical-audit/SKILL.md"
+    ],
+    "references": [
+      "~/.pi/agent/skills/convergent-technical-audit/references/STATE_AND_SCHEMAS.md",
+      "~/.claude/skills/convergent-technical-audit/references/STATE_AND_SCHEMAS.md"
+    ]
+  },
+  "safety": {
+    "scope": "audit report only; never rewrites or implements the source artifact",
+    "state": "canonical run state is private, durable, outside the audited repository, and never under /tmp",
+    "secrets": "likely secret-bearing tracked and untracked paths are excluded before content capture unless protected inclusion is explicitly approved",
+    "verification": "rejection requires affirmative counterevidence from a dedicated deep dive at least as thorough as discovery",
+    "delegation": "discovery and verification are sequential and may not recursively delegate",
+    "termination": "reports CONVERGED, CAPPED_NOT_CONVERGED, or BLOCKED without claiming perfection"
+  }
+}

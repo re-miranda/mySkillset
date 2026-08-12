@@ -11,6 +11,16 @@ This is the authoritative root-level guide to the skills in this repository.
 
 ## Available skills
 
+### `convergent-technical-audit`
+
+- **Path:** [`skills/convergent-technical-audit`](skills/convergent-technical-audit/)
+- **Purpose:** Audit a frozen technical artifact through sequential lens passes, conservative independent verification, and two clean generalist rounds, producing a Markdown report plus append-only JSONL ledger.
+- **When to use:** Evidence-backed audits of technical plans, designs, specifications, procedures, migrations, reports, or comparable artifacts where one-pass review is insufficient.
+- **When not to use:** PR or working-diff review, implementation, rewriting the source artifact, or a quick one-pass opinion.
+- **Installs:** One portable skill plus its schema reference for both Pi and Claude Code.
+- **Validation:** `bash skills/convergent-technical-audit/test.sh`
+- **Safety:** Source artifact stays read-only; likely secret paths are excluded before dirty content capture; state is durable and private outside `/tmp` and the audited repository; discovery is sequential through preflighted least-privilege subagents with no recursive delegation; rejection requires affirmative disproof from a dedicated deep dive at least as thorough as discovery.
+
 ### `tmux-pi-subagents`
 
 - **Path:** [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/)

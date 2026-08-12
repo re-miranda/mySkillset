@@ -42,6 +42,10 @@ Update my shared agent skills from the local agent-skills repository. Do not res
 
 Read [`SKILLS.md`](SKILLS.md) for what each skill does, when to use it, and how it installs. Models should read only the selected skill's `SKILL.md` during normal work; maintainer references are progressive-disclosure material.
 
+### `convergent-technical-audit`
+
+Run a bounded, evidence-backed audit of any technical artifact against frozen inputs. Sequential lens passes and conservative independent verification continue through two clean generalist rounds or an explicit cap; outputs are a Markdown report and append-only JSONL ledger, never source edits. See [`skills/convergent-technical-audit`](skills/convergent-technical-audit/README.md).
+
 ### `tmux-pi-subagents`
 
 Claude Code delegates work to Pi companions in tmux while keeping decision ownership. Pi reports through watched files; stable pane IDs are used only when Claude must reply. See [`skills/tmux-pi-subagents`](skills/tmux-pi-subagents/README.md).
