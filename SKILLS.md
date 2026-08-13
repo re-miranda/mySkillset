@@ -11,6 +11,16 @@ This is the authoritative root-level guide to the skills in this repository.
 
 ## Available skills
 
+### `failure-we-fear-most`
+
+- **Path:** [`skills/failure-we-fear-most`](skills/failure-we-fear-most/)
+- **Purpose:** Select one credible catastrophic failure and turn it into concrete prevention, rapid detection, reliable recovery, and pre-ship recovery testing.
+- **When to use:** `/failure-we-fear-most`, focused worst-case resilience reviews, or requests to identify the one failure a project should fear most.
+- **When not to use:** Broad multi-finding audits, ordinary bug triage, or implementation work.
+- **Installs:** One shared skill for Pi and Claude Code, Pi's `/failure-we-fear-most` prompt template, and Claude Code's `/failure-we-fear-most` command.
+- **Validation:** `bash skills/failure-we-fear-most/test.sh`
+- **Safety:** Read-only unless implementation is requested separately; exactly one top-level failure; operational assumptions stay explicitly unverified until tested.
+
 ### `tmux-subagents`
 
 - **Path:** [`skills/tmux-subagents`](skills/tmux-subagents/)

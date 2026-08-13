@@ -1,0 +1,24 @@
+{
+  "name": "failure-we-fear-most",
+  "version": "0.1.0",
+  "license": "0BSD",
+  "entrypoint": "SKILL.md",
+  "description": "Select one catastrophic failure and define prevention, rapid detection, reliable recovery, and a pre-ship recovery drill.",
+  "requirements": [
+    "pi and/or claude-code",
+    "bash"
+  ],
+  "validationCommand": "bash test.sh",
+  "installs": {
+    "piSkill": "~/.pi/agent/skills/failure-we-fear-most/SKILL.md",
+    "piPrompt": "~/.pi/agent/prompts/failure-we-fear-most.md",
+    "claudeSkill": "~/.claude/skills/failure-we-fear-most/SKILL.md",
+    "claudeCommand": "~/.claude/commands/failure-we-fear-most.md"
+  },
+  "safety": {
+    "scope": "select exactly one top-level failure rather than producing an unbounded audit",
+    "evidence": "distinguish repository evidence from unverified operational assumptions",
+    "recovery": "treat backups as unverified until a real restore succeeds",
+    "mutation": "read-only unless implementation is requested separately"
+  }
+}

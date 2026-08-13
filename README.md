@@ -42,6 +42,10 @@ Update my shared agent skills from the local agent-skills repository. Do not res
 
 Read [`SKILLS.md`](SKILLS.md) for what each skill does, when to use it, and how it installs. Models should read only the selected skill's `SKILL.md` during normal work; maintainer references are progressive-disclosure material.
 
+### `failure-we-fear-most`
+
+Select one credible catastrophic failure, then define prevention, rapid detection, reliable recovery, and a real pre-ship recovery drill. Installs the shared `/failure-we-fear-most` command and skill for both Pi and Claude Code. See [`skills/failure-we-fear-most`](skills/failure-we-fear-most/README.md).
+
 ### `tmux-subagents`
 
 Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
