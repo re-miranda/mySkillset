@@ -43,6 +43,7 @@ test_workflow_invariants() {
   assert_file_contains 'pauses the existing streak' "$SKILL_FILE"
   assert_file_contains 'supplement directory' "$SKILL_FILE"
   assert_file_contains 'least-privilege child profile' "$SKILL_FILE"
+  assert_file_contains 'preflight-failure procedure' "$SKILL_FILE"
   assert_file_contains 'dedicated deep-dive' "$SKILL_FILE"
   assert_file_contains 'CONVERGED' "$SKILL_FILE"
   assert_file_contains 'CAPPED_NOT_CONVERGED' "$SKILL_FILE"
@@ -61,6 +62,9 @@ test_reference_contract() {
   assert_file_contains 'resolves under `/tmp`' "$REFERENCE_FILE"
   assert_file_contains 'findings.jsonl' "$REFERENCE_FILE"
   assert_file_contains 'Generate this file from the complete canonical state' "$REFERENCE_FILE"
+  assert_file_contains 'Preflight completion failure' "$REFERENCE_FILE"
+  assert_file_contains 'restart the parent process' "$REFERENCE_FILE"
+  assert_file_contains 'create a new audit ID after recovery' "$REFERENCE_FILE"
   assert_file_contains 'Never return deferred' "$REFERENCE_FILE"
 }
 
@@ -118,6 +122,7 @@ manifest = json.loads(pathlib.Path(sys.argv[1]).read_text())
 assert manifest["name"] == "convergent-technical-audit"
 assert manifest["entrypoint"] == "SKILL.md"
 assert manifest["validationCommand"] == "bash test.sh"
+assert manifest["version"] == "0.1.1"
 assert "native-subagent-session-facility" in manifest["requirements"]
 PY
 }

@@ -3,7 +3,7 @@ name: convergent-technical-audit
 description: "Run a bounded, evidence-backed audit of a technical plan, design, specification, procedure, migration, report, or other technical artifact. Freeze inputs, cover applicable review lenses sequentially, independently verify candidates with an acceptance-biased gate, and stop after two clean generalist rounds or an explicit round cap. Produces an audit report and JSONL ledger only; never rewrites the artifact. Do not use for PR review, implementation, or a quick one-pass opinion."
 compatibility: "Requires an Agent Skills-compatible harness with fresh native subagent sessions and completion delivery, plus Git for repository-backed evidence, Bash, Python 3, and a durable writable user-state directory."
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   scope: local
 ---
 
@@ -47,8 +47,10 @@ request and local context already answer them.
 Before Phase 1, preflight the native subagent facility. It must launch fresh distinguishable
 sessions, deliver completion without polling, and support a least-privilege child profile
 that excludes delegation and source-writing tools. Use only read/search/browser tools plus
-restricted shell inspection when needed. If that facility is unavailable, write a minimal
-`BLOCKED` report under a validated durable state root and stop.
+restricted shell inspection when needed. If that facility is unavailable, follow the bounded
+preflight-failure procedure in the state reference; never improvise repeated role/model/fork
+retries. If recovery does not restore it, write a minimal `BLOCKED` report under a validated
+durable state root and stop.
 
 ## Finding taxonomy
 

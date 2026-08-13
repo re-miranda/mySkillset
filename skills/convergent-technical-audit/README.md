@@ -20,6 +20,8 @@ it never rewrites the audited artifact.
 - Honest `CONVERGED`, `CAPPED_NOT_CONVERGED`, and `BLOCKED` outcomes.
 - Preflighted native harness subagents with least-privilege tools, no recursive delegation,
   and no watcher polling.
+- Bounded recovery for an immediately aborted completion watcher: reload/restart once, then
+  retry preflight; a pre-freeze failure always restarts under a new audit ID.
 
 ## Install
 

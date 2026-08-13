@@ -247,6 +247,29 @@ and restricted shell inspection only as needed. Every child brief repeats the no
 rule. If the harness cannot enforce separate sessions and exclude orchestration tools,
 terminate `BLOCKED` rather than substituting tmux, polling, or watcher scripts.
 
+### Preflight completion failure
+
+Treat an acknowledged launch followed immediately by `Aborted while waiting for subagent to
+finish`, with no child activity or new child turns, as a probable harness lifecycle failure—not
+an artifact finding. Do not cycle through agents, models, working directories, or fork modes;
+they share the same completion layer and repeated retries do not establish independence.
+
+Use one bounded recovery path:
+
+1. Preserve the exact wrapper error and whether any child activity/session turns exist. Do
+   not inspect panes or add polling/watchers.
+2. Ask the operator to run the harness's extension reload command (for Pi, `/reload`) or
+   restart the parent process. An already-loaded faulty extension cannot repair itself from a
+   file update until it reloads.
+3. Run one fresh least-privilege preflight after reload/restart. If it fails again, terminate
+   `BLOCKED` and record the execution-layer limitation without claiming a deeper cause the
+   wrapper did not expose.
+
+If failure happened before Phase 1, create a new audit ID after recovery and freeze fresh
+inputs; never resume the pre-freeze `BLOCKED` run as though it had an evidence envelope. If a
+later phase is interrupted, resume only from previously validated canonical state and record
+the runtime interruption in provenance.
+
 ### Discovery brief
 
 Include:
