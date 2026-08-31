@@ -11,6 +11,16 @@ This is the authoritative root-level guide to the skills in this repository.
 
 ## Available skills
 
+### `ai-memory-vps-bootstrap`
+
+- **Path:** [`skills/ai-memory-vps-bootstrap`](skills/ai-memory-vps-bootstrap/)
+- **Purpose:** Converge an installed native ai-memory binary and existing authoritative data into a minimal loopback-only Pi-on-VPS user service, then verify the security and persistence invariants.
+- **When to use:** Bootstrapping or accepting a single-user Linux VPS where ai-memory state already exists and the initial topology must remain `127.0.0.1:49374` with fresh local bearer authentication.
+- **When not to use:** State migration, spool draining, credential rotation, remote exposure, provider setup, Claude wiring, live restore, or destructive cleanup.
+- **Installs:** One operational skill, two guarded scripts, and a hardened service template for Pi and Claude Code; the installer never executes the VPS bootstrap.
+- **Validation:** `bash skills/ai-memory-vps-bootstrap/test.sh`
+- **Safety:** Preview by default; apply requires an explicit flag; existing incompatible files fail closed; config generation uses isolated temporary state; tokens are never printed or placed in curl arguments; network bind is fixed to loopback.
+
 ### `convergent-technical-audit`
 
 - **Path:** [`skills/convergent-technical-audit`](skills/convergent-technical-audit/)
