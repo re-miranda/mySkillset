@@ -1,0 +1,38 @@
+[Unit]
+Description=ai-memory MCP server (user service)
+Documentation=https://github.com/akitaonrails/ai-memory
+
+[Service]
+Type=simple
+UMask=0077
+EnvironmentFile=@ENV_FILE@
+ExecCondition=/bin/sh -c 'test -n "$$AI_MEMORY_AUTH_TOKEN"'
+ExecStart=@AI_MEMORY_EXEC@ --data-dir @DATA_DIR@ --config @CONFIG_FILE@ serve --transport http --bind 127.0.0.1:49374 --enable-web
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindReadOnlyPaths=@AI_MEMORY_EXEC_DIR@
+BindReadOnlyPaths=@CONFIG_DIR@
+BindPaths=@DATA_DIR@
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target
