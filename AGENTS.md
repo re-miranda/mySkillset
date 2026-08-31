@@ -5,6 +5,8 @@
 - Start with `SKILLS.md`, then read only the selected skill's `SKILL.md`.
 - Treat `references/` as progressive disclosure. Load a reference only when the skill tells you to or when maintaining that skill.
 - Never copy maintainer-only negative examples into runtime prompts.
+- Delivery first: choose the shortest safe path to usability; only explicit requirements or evidenced risks of irreversible loss, security compromise, or false success may block delivery, and ask before adding further complexity after a rejected cycle.
+- Match the surrounding text’s tone, density, and level of detail; read the room instead of expanding a concise instruction into a policy section.
 - Run `bash validate.sh` before reporting a repository change complete.
 
 ## Pulling updates
