@@ -1,0 +1,24 @@
+{
+  "name": "visual-parity-walkthrough",
+  "version": "0.1.0",
+  "license": "0BSD",
+  "entrypoint": "SKILL.md",
+  "description": "Interactive capture-and-diff walkthrough of a ported UI against its reference implementation: the user drives and captures, the agent verdicts each capture live, and the session ends in a ranked evidence-backed improvement list plus a decisions ledger.",
+  "requirements": [
+    "claude-code",
+    "ffmpeg",
+    "bash"
+  ],
+  "validationCommand": "bash test.sh",
+  "installs": {
+    "skills": [
+      "~/.claude/skills/visual-parity-walkthrough/SKILL.md"
+    ]
+  },
+  "safety": {
+    "scope": "read-only: the walkthrough analyzes and recommends; it never changes code",
+    "evidence": "every finding needs a capture plus port and reference file:line cites, or an explicit user-concurred aesthetic call",
+    "motionVerdicts": "animation pace rulings belong to the user per animation; never inferred from frames",
+    "decisionsLedger": "every acceptance, ruling, and unvetoed assumption must land in the report, not only in chat"
+  }
+}

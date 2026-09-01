@@ -62,6 +62,16 @@ This is the authoritative root-level guide to the skills in this repository.
 - **Validation:** `bash skills/rolling-code-audit/test.sh`
 - **Safety:** All GitHub writes are previewed and user-confirmed; runs never fix code and never close or create the standing issue; the replan command must keep the system at exactly two commands.
 
+### `visual-parity-walkthrough`
+
+- **Path:** [`skills/visual-parity-walkthrough`](skills/visual-parity-walkthrough/)
+- **Purpose:** Run an interactive, evidence-first capture-and-diff session that compares a ported UI against its reference implementation, surface by surface, ending in a ranked improvement list plus a decisions ledger.
+- **When to use:** Visual polish passes, cross-platform UI parity reviews, pre-release/store screenshot gates, or any "walk me through capturing the app and tell me what's off" request with a user at the keyboard; requires a running build, a readable capture-output directory, and ffmpeg.
+- **When not to use:** Code-only review without a running app, non-interactive sessions (no one to capture), or motion-pace judgments without the user's explicit per-animation verdict.
+- **Installs:** One Claude skill: `~/.claude/skills/visual-parity-walkthrough`.
+- **Validation:** `bash skills/visual-parity-walkthrough/test.sh`
+- **Safety:** Read-only — the walkthrough analyzes and recommends, never changes code; every finding needs a capture plus port and reference file:line cites (or a user-concurred aesthetic call); every acceptance, ruling, and unvetoed assumption must land in the report's decisions ledger, not only in chat.
+
 ## Catalog entry requirements
 
 Every new skill must add an entry containing:
