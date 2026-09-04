@@ -40,14 +40,18 @@ test_shell_syntax() {
     "$SKILL_DIR/tests/fakes/fake-delivery-verifier"
 }
 
-seed_safe_claude_policy() {
-  local pi_dir="$1" package_dir policy_dir
-  package_dir="$pi_dir/local-packages/pi-interactive-subagents"
+seed_safe_claude_policy_at() {
+  local package_dir="$1" policy_dir
   policy_dir="$package_dir/pi-extension/subagents"
   mkdir -p "$policy_dir"
   cp "$SKILL_DIR/tests/fakes/fake-safe-package.json" "$package_dir/package.json"
   cp "$SKILL_DIR/tests/fakes/fake-safe-claude-command.ts" "$policy_dir/claude-command.ts"
   cp "$SKILL_DIR/tests/fakes/fake-safe-index.ts" "$policy_dir/index.ts"
+}
+
+seed_safe_claude_policy() {
+  local pi_dir="$1"
+  seed_safe_claude_policy_at "$pi_dir/local-packages/pi-interactive-subagents"
 }
 
 assert_generic_install_targets() {
@@ -115,6 +119,16 @@ test_installer_convergence() {
   [ "$backup_count" -eq "$(find "$claude_home" "$pi_dir" -name '*.bak.*' | wc -l)" ] || \
     fail_test "reinstall created unnecessary backups"
   assert_contains 'keep .*tmux-subagents/SKILL.md (current)' "$SUITE_ROOT/reinstall.out"
+}
+
+test_git_extension_discovery() {
+  local claude_home="$SUITE_ROOT/git-claude" pi_dir="$SUITE_ROOT/git-pi"
+  local package_dir="$pi_dir/git/github.com/re-miranda/pi-interactive-subagents"
+  seed_safe_claude_policy_at "$package_dir"
+  env -u PI_SUBAGENT_EXTENSION_DIR CLAUDE_HOME="$claude_home" PI_AGENT_DIR="$pi_dir" \
+    bash "$SKILL_DIR/install.sh" >/dev/null
+  [ -f "$pi_dir/agents/claude-code.md" ] || \
+    fail_test "installer did not discover the Git-installed extension"
 }
 
 make_claude_policy_unsafe() {
@@ -235,6 +249,8 @@ test_skill_routing_contract() {
   [ ! -e "$SKILL_DIR/integrations/claude/commands/pi-subagents.md" ] || fail_test "source retained /pi-subagents"
   [ ! -e "$BIN_DIR/spawn-fable-agent" ] || fail_test "generic scripts retained Fable launcher"
   grep -Fq 'spawn-fable-agent' "$SKILL_DIR/manifest.json" && fail_test "manifest advertises Fable"
+  assert_fixed_contains 'extensions/pi-interactive-subagents' "$SKILL_DIR/manifest.json"
+  assert_fixed_contains 'ee3b47fd42cadeb77fb7decb01fd1ba693ea6ab0' "$SKILL_DIR/manifest.json"
   find "$SKILL_DIR/references/legacy" -name SKILL.md -print -quit | grep -q . && \
     fail_test "legacy signature fixture is discoverable as an active skill"
   assert_fixed_contains 'manual-permissions-v1' "$SKILL_DIR/integrations/pi/agents/claude-code.md"
@@ -451,6 +467,7 @@ run_installer_tests() {
   test_older_legacy_migration
   test_installer_upgrade
   test_installer_convergence
+  test_git_extension_discovery
   test_unsafe_extension_guard
   test_policy_downgrade_convergence
   test_tmux_block_convergence

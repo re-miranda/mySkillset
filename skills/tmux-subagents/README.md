@@ -16,7 +16,14 @@ A Pi agent using an Anthropic model remains a Pi process. Pi starts Claude Code 
 
 ## Install
 
-From the repository root:
+The tested Pi extension companion is pinned at [`../../extensions/pi-interactive-subagents`](../../extensions/pi-interactive-subagents). Initialize the submodule in an existing clone and install the same revision as a Pi package:
+
+```bash
+git submodule update --init --recursive
+pi install git:github.com/re-miranda/pi-interactive-subagents@ee3b47f
+```
+
+Then install the skill from the repository root:
 
 ```bash
 bash install.sh --skill tmux-subagents
@@ -39,7 +46,7 @@ Optional tmux key configuration:
 bash install.sh --skill tmux-subagents --with-tmux
 ```
 
-Override targets during tests with `CLAUDE_HOME=/tmp/test-claude` and `PI_AGENT_DIR=/tmp/test-pi`.
+Override targets during tests with `CLAUDE_HOME=/tmp/test-claude` and `PI_AGENT_DIR=/tmp/test-pi`. Override extension discovery with `PI_SUBAGENT_EXTENSION_DIR=/path/to/pi-interactive-subagents`; otherwise the installer checks Pi's local-package checkout and the known GitHub package checkouts.
 
 **Restart required:** after installation or migration, open fresh Pi and Claude Code parent sessions so they load the new skill and commands. Existing agent panes are retained only for inspection; do not reuse their loaded workflow.
 

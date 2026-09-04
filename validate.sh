@@ -37,9 +37,17 @@ validate_skill() {
   fi
 }
 
+validate_submodules() {
+  local repo_dir="$1" status
+  status=$(git -C "$repo_dir" submodule status --recursive)
+  ! grep -Eq '^[-+U]' <<<"$status" || \
+    fail_validation "companion submodule is missing or not at its pinned commit: $status"
+}
+
 main() {
   local repo_dir skill_dir found="0"
   repo_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+  validate_submodules "$repo_dir"
   for skill_dir in "$repo_dir"/skills/*; do
     [ -d "$skill_dir" ] || continue
     found="1"

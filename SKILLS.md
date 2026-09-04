@@ -48,6 +48,7 @@ This is the authoritative root-level guide to the skills in this repository.
 - **When to use:** Subagent, companion-agent, parallel delegation, reviewer, scout, worker, or split-pane requests where either harness may own the parent role.
 - **When not to use:** Environments without the selected harness integration, or attempts to mix two lifecycle mechanisms for one child.
 - **Installs:** The shared skill for both Pi and Claude, Pi's `claude-code` child definition only while the extension passes the `manual-permissions-v1` probe, Claude's canonical `/tmux-subagents` and bridge-only `/poll` commands, Claude-to-Pi helper scripts, a marked Claude routing block, and optional tmux key settings.
+- **Companion:** [`extensions/pi-interactive-subagents`](extensions/pi-interactive-subagents) pins the tested Pi extension repository as a Git submodule; install the package from its canonical GitHub URL before installing this skill.
 - **Communication:** Pi parents use the interactive-subagents extension; Claude parents use native Agents for Claude children and the file/watcher bridge only for Pi children.
 - **Validation:** `bash skills/tmux-subagents/test.sh`
 - **Maintainer warning:** Read `references/KNOWN_FAILURES.md` before changing routing or signaling. Its rejected examples must never enter generated child prompts.

@@ -24,6 +24,7 @@ main() {
   require_clean_tree "$repo_dir"
   require_upstream "$repo_dir"
   git -C "$repo_dir" pull --ff-only
+  git -C "$repo_dir" submodule update --init --recursive
   bash "$repo_dir/validate.sh"
   bash "$repo_dir/install.sh" "$@"
   commit=$(git -C "$repo_dir" rev-parse HEAD)

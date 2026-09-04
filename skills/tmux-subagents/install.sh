@@ -15,7 +15,7 @@ Options:
 Environment:
   CLAUDE_HOME                Claude config directory (default: ~/.claude)
   PI_AGENT_DIR               Pi agent directory (default: ~/.pi/agent)
-  PI_SUBAGENT_EXTENSION_DIR  interactive-subagents root (default: under PI_AGENT_DIR)
+  PI_SUBAGENT_EXTENSION_DIR  interactive-subagents root (overrides checkout discovery)
 USAGE
 }
 
@@ -407,11 +407,25 @@ preflight_install() {
   preflight_backup_destinations
 }
 
+resolve_pi_extension_dir() {
+  local candidate
+  if [ -n "${PI_SUBAGENT_EXTENSION_DIR:-}" ]; then
+    printf '%s\n' "$PI_SUBAGENT_EXTENSION_DIR"
+    return
+  fi
+  for candidate in "$PI_DIR/local-packages/pi-interactive-subagents" \
+    "$PI_DIR/git/github.com/re-miranda/pi-interactive-subagents" \
+    "$PI_DIR/git/github.com/HazAT/pi-interactive-subagents"; do
+    [ ! -d "$candidate" ] || { printf '%s\n' "$candidate"; return; }
+  done
+  printf '%s\n' "$PI_DIR/local-packages/pi-interactive-subagents"
+}
+
 initialize_install_paths() {
   SKILL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   CLAUDE_DIR="${CLAUDE_HOME:-$HOME/.claude}"
   PI_DIR="${PI_AGENT_DIR:-$HOME/.pi/agent}"
-  PI_EXTENSION_DIR="${PI_SUBAGENT_EXTENSION_DIR:-$PI_DIR/local-packages/pi-interactive-subagents}"
+  PI_EXTENSION_DIR=$(resolve_pi_extension_dir)
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 }
 

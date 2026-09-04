@@ -1,0 +1,3 @@
+[submodule "extensions/pi-interactive-subagents"]
+	path = extensions/pi-interactive-subagents
+	url = https://github.com/re-miranda/pi-interactive-subagents.git

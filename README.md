@@ -18,7 +18,7 @@ Do not initialize the GitHub repository with a README or license; this local rep
 After the GitHub remote exists:
 
 ```bash
-git clone <github-repository-url> agent-skills
+git clone --recurse-submodules <github-repository-url> agent-skills
 cd agent-skills
 bash validate.sh
 bash install.sh
@@ -30,7 +30,7 @@ Pull and install the latest verified version:
 bash update.sh
 ```
 
-`update.sh` refuses to pull over local changes, uses `git pull --ff-only`, validates every skill, and only then runs the installers.
+`update.sh` refuses to pull over local changes, uses `git pull --ff-only`, initializes the pinned companion submodules, validates every skill, and only then runs the installers.
 
 ## Prompt for a model
 
@@ -56,7 +56,7 @@ Select one credible catastrophic failure, then define prevention, rapid detectio
 
 ### `tmux-subagents`
 
-Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
+Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. Its Pi extension companion is pinned as the [`extensions/pi-interactive-subagents`](extensions/pi-interactive-subagents) Git submodule. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
 
 ### `rolling-code-audit`
 
@@ -68,6 +68,7 @@ A standing, never-finished code review driven by a staleness score instead of a 
 agent-skills/
 ├── AGENTS.md       instructions for models maintaining this repository
 ├── SKILLS.md       root catalog and selection guide
+├── extensions/     pinned companion repositories
 ├── install.sh      install all skills or one named skill
 ├── update.sh       safe pull → validate → install workflow
 ├── validate.sh     repository-wide validation command
