@@ -1,5 +1,7 @@
 # Agent Skills repository instructions
 
+Before contributing, read [`CONTRIBUTING_AGENTS.md`](CONTRIBUTING_AGENTS.md).
+
 ## Using this repository
 
 - Start with `SKILLS.md`, then read only the selected skill's `SKILL.md`.
