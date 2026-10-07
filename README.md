@@ -56,7 +56,7 @@ Select one credible catastrophic failure, then define prevention, rapid detectio
 
 ### `tmux-subagents`
 
-Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. Its Pi extension companion is pinned as the [`extensions/pi-interactive-subagents`](extensions/pi-interactive-subagents) Git submodule. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
+Pi or Claude Code can orchestrate Pi- or Claude-backed children through harness-native lifecycle adapters. The file/watcher bridge is isolated to Claude-to-Pi instead of defining the whole workflow. Claude children request Auto mode with classifier-based checks, never bypass-permissions. Its Pi extension companion is tracked as the [`extensions/pi-interactive-subagents`](extensions/pi-interactive-subagents) Git submodule; the matching Auto-policy revision must be installed. See [`skills/tmux-subagents`](skills/tmux-subagents/README.md).
 
 ### `rolling-code-audit`
 

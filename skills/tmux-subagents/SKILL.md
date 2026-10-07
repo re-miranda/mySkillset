@@ -2,9 +2,9 @@
 name: tmux-subagents
 description: Delegate work from either Pi or Claude Code to Pi- or Claude-backed subagents using the active harness's native lifecycle and managed terminal surfaces. Use for subagent, companion-agent, parallel delegation, reviewer, scout, worker, or split-pane requests.
 license: 0BSD
-compatibility: Requires Claude Code and/or Pi. Pi orchestration requires pi-interactive-subagents; Claude children require its manual-permissions-v1 capability. The Claude-to-Pi bridge additionally requires Pi, tmux, and Bash.
+compatibility: Requires Claude Code and/or Pi. Pi orchestration requires pi-interactive-subagents; Claude children require its auto-permissions-v1 capability and Claude Auto-mode support. The Claude-to-Pi bridge additionally requires Pi, tmux, and Bash.
 metadata:
-  version: "2.0.1"
+  version: "2.0.3"
 ---
 
 # Tmux Subagents
@@ -28,7 +28,7 @@ Honor an explicit runtime request. If the child runtime is ambiguous and changes
 3. A definition without `cli: claude` starts Pi. A Claude Code child requires an available definition that explicitly contains `cli: claude`; never infer the CLI from its model name.
 4. Use parallel calls only for independent work.
 5. After spawning, end the turn or continue unrelated work. The extension delivers completion automatically; never poll logs, session files, or panes.
-6. Use `interactive: true` when the user needs to drive the child in its pane. Claude Code children must retain an interactive permission flow; do not bypass permission checks.
+6. Use `interactive: true` to suppress parent stall nudges for user-driven children; it does not disable auto-exit. To keep a Pi child open, select an agent with `auto-exit: false`. Claude Code children start in Auto mode with classifier-based permission checks; keep remaining approval prompts interactive and never bypass permissions.
 7. Validate a child's result before reporting completion or applying consequential recommendations.
 
 Do not call the Claude-to-Pi bridge from a Pi parent. The extension owns surface creation, delivery, resumption, and status.

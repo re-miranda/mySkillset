@@ -1,4 +1,4 @@
-export const CLAUDE_LAUNCH_POLICY = "manual-permissions-v1" as const;
+export const CLAUDE_LAUNCH_POLICY = "auto-permissions-v1" as const;
 
 interface LaunchOptions {
   model?: string;
@@ -9,7 +9,7 @@ interface LaunchOptions {
 }
 
 export function buildClaudeLaunchArgs(options: LaunchOptions): string[] {
-  const args = ["--permission-mode", "manual"];
+  const args = ["--permission-mode", "auto"];
   if (options.pluginDir) args.push(`--plugin-dir=${options.pluginDir}`);
   if (options.model) args.push(`--model=${options.model}`);
   if (options.systemPrompt) args.push(`--append-system-prompt=${options.systemPrompt}`);

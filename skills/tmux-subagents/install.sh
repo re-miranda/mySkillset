@@ -352,7 +352,7 @@ install_pi_agent_definition() {
   local target_path="$PI_DIR/agents/claude-code.md"
   if ! has_safe_claude_child_policy; then
     disable_managed_claude_definition
-    log_install_step "Claude child definition not installed; expected verified manual-permissions-v1 capability in $PI_EXTENSION_DIR"
+    log_install_step "Claude child definition not installed; expected verified auto-permissions-v1 capability in $PI_EXTENSION_DIR"
     return
   fi
   copy_workflow_file "$SKILL_DIR/integrations/pi/agents/claude-code.md" "$target_path" 0644

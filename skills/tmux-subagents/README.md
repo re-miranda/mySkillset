@@ -16,11 +16,13 @@ A Pi agent using an Anthropic model remains a Pi process. Pi starts Claude Code 
 
 ## Install
 
-The tested Pi extension companion is pinned at [`../../extensions/pi-interactive-subagents`](../../extensions/pi-interactive-subagents). Initialize the submodule in an existing clone and install the same revision as a Pi package:
+The Pi extension companion is tracked at [`../../extensions/pi-interactive-subagents`](../../extensions/pi-interactive-subagents). The pinned revision includes the `auto-permissions-v1` launch contract and Pi 1.0.4 settlement/shortcut regressions.
+
+Install the matching pinned revision:
 
 ```bash
 git submodule update --init --recursive
-pi install git:github.com/re-miranda/pi-interactive-subagents@ee3b47f
+pi install git:github.com/re-miranda/pi-interactive-subagents@526b22488be398fda60795bd6b8a09701b6fe147
 ```
 
 Then install the skill from the repository root:
@@ -33,7 +35,7 @@ The installer converges both first-class targets by default:
 
 - `~/.claude/skills/tmux-subagents`
 - `~/.pi/agent/skills/tmux-subagents`
-- Pi's `claude-code` child definition when the installed extension passes the executable `manual-permissions-v1` capability probe
+- Pi's `claude-code` child definition when the installed extension passes the executable `auto-permissions-v1` capability probe
 - Claude's canonical `/tmux-subagents` command
 - Claude-to-Pi bridge helpers
 - The marked Claude routing block
@@ -55,7 +57,9 @@ Override targets during tests with `CLAUDE_HOME=/tmp/test-claude` and `PI_AGENT_
 - Pi parents use the extension; they never call Claude's watcher bridge.
 - Claude parents use the native Agent tool for Claude children.
 - Only Claude-to-Pi uses `result.md`, `question.md`, and the managed watcher.
-- Claude children launched from Pi retain interactive permission prompts. The installer dynamically probes the extension-owned `manual-permissions-v1` contract and archives its managed child definition if that capability disappears.
+- Claude children launched from Pi request `--permission-mode auto`: classifier-based approvals, not `bypassPermissions`. Remaining permission prompts stay interactive. The installer probes the truthful `auto-permissions-v1` contract and archives its managed child definition if the extension is stale or the arguments no longer match.
+- Auto mode still requires support from Claude Code, the selected model and account policy; Claude may fall back to Manual when unavailable. Never work around that by disabling permission checks.
+- Existing Pi parents retain loaded launch code until reload/restart; existing Claude children keep their current mode. Do not interrupt running work just to change the default.
 - Stable `%<pane-id>` mappings are mandatory for the rare Claude-to-Pi reply.
 
 Maintainer-only failures live in [`references/KNOWN_FAILURES.md`](references/KNOWN_FAILURES.md) and must never enter a child prompt.
@@ -67,6 +71,8 @@ bash skills/tmux-subagents/test.sh
 ```
 
 The suite covers install convergence and policy downgrade, every released migration signature, backup-safe discovery, atomic collision preflight, file-mode preservation, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, consumed watcher signals, stale-result re-arm and distinct second-round results, timeout handling, name reuse, and ambiguous-target rejection.
+
+Pi 1.0.4 compatibility was checked with fresh offline startup, skill discovery and the companion regression suite. Automatic Pi-child completion waits for `agent_settled`, not a retryable `agent_end`. `interactive: true` controls parent stall nudges; keeping a Pi child open requires `auto-exit: false`. The bridge validation covers default Pi session storage; custom agent/session roots require separate delivery verification.
 
 ## Files
 

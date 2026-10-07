@@ -1,6 +1,6 @@
 {
   "name": "tmux-subagents",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "license": "0BSD",
   "entrypoint": "SKILL.md",
   "description": "Pi or Claude Code orchestrates Pi- or Claude-backed children through harness-native lifecycle adapters.",
@@ -13,8 +13,8 @@
     "name": "pi-interactive-subagents",
     "repository": "https://github.com/re-miranda/pi-interactive-subagents",
     "submodulePath": "extensions/pi-interactive-subagents",
-    "pinnedCommit": "ee3b47fd42cadeb77fb7decb01fd1ba693ea6ab0",
-    "piPackage": "git:github.com/re-miranda/pi-interactive-subagents@ee3b47f"
+    "pinnedCommit": "526b22488be398fda60795bd6b8a09701b6fe147",
+    "piPackage": "git:github.com/re-miranda/pi-interactive-subagents@526b22488be398fda60795bd6b8a09701b6fe147"
   },
   "validationCommand": "bash test.sh",
   "bridgeStateRoot": "/tmp/claude-agents",
@@ -22,7 +22,7 @@
     "claudeSkill": "~/.claude/skills/tmux-subagents",
     "piSkill": "~/.pi/agent/skills/tmux-subagents",
     "conditionalPiAgents": [
-      "~/.pi/agent/agents/claude-code.md (requires extension manual-permissions-v1 capability)"
+      "~/.pi/agent/agents/claude-code.md (requires extension auto-permissions-v1 capability)"
     ],
     "commands": [
       "~/.claude/commands/tmux-subagents.md",
@@ -41,7 +41,7 @@
   "safety": {
     "nativeLifecycle": "Pi and Claude children use their parent harness's native lifecycle whenever available",
     "bridgeScope": "file and watcher signaling is limited to Claude-to-Pi",
-    "claudePermissions": "manual-permissions-v1 capability; option parsing terminates before task text",
+    "claudePermissions": "auto-permissions-v1 capability; classifier-based checks, never bypass; option parsing terminates before task text",
     "legacyMigration": "exact released signatures only; retired skills are backed up outside discovery roots",
     "paneAddressing": "validated tmux %<id> only",
     "negativeExamples": "maintainer-only; excluded from generated child prompts"

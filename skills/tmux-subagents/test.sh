@@ -36,6 +36,7 @@ test_shell_syntax() {
     "$BIN_DIR/watch-pi-agent" "$BIN_DIR/poll-pi-agent" \
     "$BIN_DIR/cleanup-pi-agent" "$BIN_DIR/probe-claude-child-policy" \
     "$SKILL_DIR/tests/migration-regressions.sh" \
+    "$SKILL_DIR/tests/claude-policy-regressions.sh" \
     "$SKILL_DIR/tests/fakes/fake-runtime-command" \
     "$SKILL_DIR/tests/fakes/fake-delivery-verifier"
 }
@@ -131,56 +132,6 @@ test_git_extension_discovery() {
     fail_test "installer did not discover the Git-installed extension"
 }
 
-make_claude_policy_unsafe() {
-  local helper="$1/local-packages/pi-interactive-subagents/pi-extension/subagents/claude-command.ts"
-  python3 - "$helper" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-source = path.read_text()
-unsafe = source.replace('["--permission-mode", "manual"]', '["--permission-mode", "bypassPermissions"]')
-assert unsafe != source
-path.write_text(unsafe)
-PY
-}
-
-test_policy_capability_probe() {
-  local pi_dir="$SUITE_ROOT/probe-pi"
-  seed_safe_claude_policy "$pi_dir"
-  "$BIN_DIR/probe-claude-child-policy" \
-    "$pi_dir/local-packages/pi-interactive-subagents"
-  make_claude_policy_unsafe "$pi_dir"
-  run_expect_failure "$SUITE_ROOT/probe-unsafe.out" "$SUITE_ROOT/probe-unsafe.err" \
-    "$BIN_DIR/probe-claude-child-policy" "$pi_dir/local-packages/pi-interactive-subagents"
-  [ "$last_exit_code" -ne 0 ] || fail_test "policy probe accepted bypass permissions"
-  assert_fixed_contains 'expected ["--permission-mode","manual"' "$SUITE_ROOT/probe-unsafe.err"
-}
-
-test_unsafe_extension_guard() {
-  local claude_home="$SUITE_ROOT/unsafe-claude" pi_dir="$SUITE_ROOT/unsafe-pi"
-  CLAUDE_HOME="$claude_home" PI_AGENT_DIR="$pi_dir" bash "$SKILL_DIR/install.sh" \
-    > "$SUITE_ROOT/unsafe-install.out"
-  [ ! -e "$pi_dir/agents/claude-code.md" ] || fail_test "unsafe extension enabled Claude children"
-  assert_fixed_contains 'Claude child definition not installed' "$SUITE_ROOT/unsafe-install.out"
-}
-
-test_policy_downgrade_convergence() {
-  local claude_home="$SUITE_ROOT/downgrade-claude" pi_dir="$SUITE_ROOT/downgrade-pi"
-  seed_safe_claude_policy "$pi_dir"
-  CLAUDE_HOME="$claude_home" PI_AGENT_DIR="$pi_dir" bash "$SKILL_DIR/install.sh" >/dev/null
-  [ -f "$pi_dir/agents/claude-code.md" ] || fail_test "safe policy did not enable Claude child"
-  make_claude_policy_unsafe "$pi_dir"
-  CLAUDE_HOME="$claude_home" PI_AGENT_DIR="$pi_dir" bash "$SKILL_DIR/install.sh" \
-    > "$SUITE_ROOT/downgrade-install.out"
-  [ ! -e "$pi_dir/agents/claude-code.md" ] || fail_test "policy downgrade left Claude child active"
-  find "$pi_dir/agents" -name 'claude-code.md*' -print -quit | grep -q . && \
-    fail_test "policy downgrade left a discoverable Claude definition"
-  find "$pi_dir/backups/tmux-subagents/agents" -name 'claude-code.md.bak.*' \
-    -print -quit | grep -q . || fail_test "policy downgrade did not preserve the managed definition"
-  assert_fixed_contains 'expected verified manual-permissions-v1 capability' \
-    "$SUITE_ROOT/downgrade-install.out"
-}
-
 test_ambiguous_claude_instructions() {
   local claude_home="$SUITE_ROOT/ambiguous-claude" pi_dir="$SUITE_ROOT/ambiguous-pi" before
   mkdir -p "$claude_home"
@@ -250,10 +201,20 @@ test_skill_routing_contract() {
   [ ! -e "$BIN_DIR/spawn-fable-agent" ] || fail_test "generic scripts retained Fable launcher"
   grep -Fq 'spawn-fable-agent' "$SKILL_DIR/manifest.json" && fail_test "manifest advertises Fable"
   assert_fixed_contains 'extensions/pi-interactive-subagents' "$SKILL_DIR/manifest.json"
-  assert_fixed_contains 'ee3b47fd42cadeb77fb7decb01fd1ba693ea6ab0' "$SKILL_DIR/manifest.json"
+  local pinned_revision
+  pinned_revision=$(git -C "$SKILL_DIR/../../extensions/pi-interactive-subagents" rev-parse HEAD)
+  assert_fixed_contains "\"pinnedCommit\": \"$pinned_revision\"" "$SKILL_DIR/manifest.json"
+  assert_fixed_contains "\"piPackage\": \"git:github.com/re-miranda/pi-interactive-subagents@$pinned_revision\"" "$SKILL_DIR/manifest.json"
+  assert_fixed_contains "pi install git:github.com/re-miranda/pi-interactive-subagents@$pinned_revision" "$SKILL_DIR/README.md"
   find "$SKILL_DIR/references/legacy" -name SKILL.md -print -quit | grep -q . && \
     fail_test "legacy signature fixture is discoverable as an active skill"
-  assert_fixed_contains 'manual-permissions-v1' "$SKILL_DIR/integrations/pi/agents/claude-code.md"
+  assert_fixed_contains 'auto-permissions-v1' "$SKILL_DIR/integrations/pi/agents/claude-code.md"
+}
+
+test_skill_interactive_policy() {
+  assert_fixed_contains 'it does not disable auto-exit' "$SKILL_DIR/SKILL.md"
+  assert_fixed_contains 'auto-exit: false' "$SKILL_DIR/SKILL.md"
+  assert_fixed_contains 'agent_settled' "$SKILL_DIR/references/KNOWN_FAILURES.md"
 }
 
 test_verify_delivery() {
@@ -460,6 +421,8 @@ cleanup_suite() {
 
 run_installer_tests() {
   test_policy_capability_probe
+  test_manual_arguments_are_not_auto
+  test_old_manual_capability_is_disabled
   test_ambiguous_claude_instructions
   test_unowned_legacy_collisions
   test_unknown_legacy_extra_fails
@@ -498,6 +461,7 @@ main() {
   BIN_DIR="$SKILL_DIR/scripts"
   FABLE_HELPER="$SKILL_DIR/references/legacy/scripts/spawn-fable-agent"
   source "$SKILL_DIR/tests/migration-regressions.sh"
+  source "$SKILL_DIR/tests/claude-policy-regressions.sh"
   SUITE_ROOT=$(mktemp -d /tmp/agent-workflow-test.XXXXXX)
   TEST_TMUX_SESSION=""
   trap cleanup_suite EXIT
@@ -505,6 +469,7 @@ main() {
   test_shell_syntax
   run_installer_tests
   test_skill_routing_contract
+  test_skill_interactive_policy
   run_bridge_launch_tests
   run_bridge_state_tests
   test_failure_reference

@@ -176,7 +176,7 @@ tmux send-keys -t "$pane" C-m
 
 **Observed risk:** a policy downgrade can expose a managed Claude child to option injection or bypassed permission prompts.
 
-**Invariant:** the installer executes the extension-owned `manual-permissions-v1` capability probe with option-shaped task and resume values. If it fails, the installer archives its managed Claude definition.
+**Invariant:** the installer executes the declared launch-policy capability probe with option-shaped task and resume values; a marker alone is insufficient. The original contract was `manual-permissions-v1`. After explicit user selection of Auto for all new Claude sessions, the current contract is `auto-permissions-v1`, with exact `--permission-mode auto` arguments and no bypass. If it fails, the installer archives its managed Claude definition.
 
 ## 15. Migrating legacy paths by broad text match
 
@@ -216,6 +216,32 @@ It moves results to a unique `completed-*` path and questions to a unique
 `pending-*` path, reports that preserved path, and leaves the active signal link
 dangling. Re-arming without new output must wait or time out; a later write from
 the same child must produce a distinct preserved result.
+
+## 19. Changing a global default while managed launches still force Manual
+
+**Observed failure:** setting Claude's global `permissions.defaultMode` cannot
+override the extension's explicit `--permission-mode manual`, and a running Pi
+parent retains its loaded argument builder after files change on disk.
+
+**Invariant:** an explicit user-approved switch to Auto updates the actual
+argument builder, its declared capability, the executable probe and the managed
+agent definition together. Tests reject both a stale Manual capability and a
+Manual argument array falsely labeled Auto. Validate new launches from a fresh
+parent; never force a running child into another mode. Auto is classifier-based
+permission checking, not permission bypass; unsupported accounts/models may
+fall back to Manual and must not be reported as verified Auto.
+
+## 20. Treating a low-level run end as terminal completion
+
+**Observed failure:** the automatic child reporter wrote an error exit signal and requested shutdown on `agent_end`, before Pi's automatic retry or a continuation could finish. A later successful response could not undo the already-consumed failure signal. Pi 1.0.4 (`7c10bd4337495ee613f2224843ecdf349b80d1df`) retains this distinction between run end and settlement; it is not an upgrade-only regression.
+
+**Invariant:** `agent_end` records the latest outcome. Automatic exit signals, final activity state and shutdown wait for `agent_settled`; explicit `caller_ping` and `subagent_done` retain their separate contracts. Tests cover retry recovery, exhaustion, aborts and continuations without pre-settlement terminal side effects.
+
+## 21. Confusing interactive reporting with permanent takeover
+
+**Observed failure:** the README promised that user input permanently disabled auto-exit, while the implementation and regression test intentionally kept auto-exit active. `interactive: true` controls parent stall notifications, not the child's exit policy.
+
+**Invariant:** document the actual policy. Keeping a Pi child open requires an agent definition with `auto-exit: false`; neither user input nor `interactive: true` guarantees that. Widget shortcuts must also avoid Pi's default newline key (`ctrl+j`).
 
 ## Regression checklist
 
