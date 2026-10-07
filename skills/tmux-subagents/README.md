@@ -22,7 +22,7 @@ Install the matching pinned revision:
 
 ```bash
 git submodule update --init --recursive
-pi install git:github.com/re-miranda/pi-interactive-subagents@526b22488be398fda60795bd6b8a09701b6fe147
+pi install git:github.com/re-miranda/pi-interactive-subagents@ae20d01024b4bf75a9536887d48f1e13649808b5
 ```
 
 Then install the skill from the repository root:
@@ -72,7 +72,7 @@ bash skills/tmux-subagents/test.sh
 
 The suite covers install convergence and policy downgrade, every released migration signature, backup-safe discovery, atomic collision preflight, file-mode preservation, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, consumed watcher signals, stale-result re-arm and distinct second-round results, timeout handling, name reuse, and ambiguous-target rejection.
 
-Pi 1.0.4 compatibility was checked with fresh offline startup, skill discovery and the companion regression suite. Automatic Pi-child completion waits for `agent_settled`, not a retryable `agent_end`. `interactive: true` controls parent stall nudges; keeping a Pi child open requires `auto-exit: false`. The bridge validation covers default Pi session storage; custom agent/session roots require separate delivery verification.
+Pi 1.0.4 compatibility was checked with fresh offline startup from both repository roots, skill discovery and the companion regression suite. The companion's development config suppresses installed upstream/fork copies so the local extension loads without tool-name collisions. Automatic Pi-child completion waits for `agent_settled`, not a retryable `agent_end`. `interactive: true` controls parent stall nudges; keeping a Pi child open requires `auto-exit: false`. The bridge validation covers default Pi session storage; custom agent/session roots require separate delivery verification.
 
 ## Files
 

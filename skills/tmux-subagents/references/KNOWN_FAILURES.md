@@ -243,6 +243,12 @@ fall back to Manual and must not be reported as verified Auto.
 
 **Invariant:** document the actual policy. Keeping a Pi child open requires an agent definition with `auto-exit: false`; neither user input nor `interactive: true` guarantees that. Widget shortcuts must also avoid Pi's default newline key (`ctrl+j`).
 
+## 22. Loading installed and local companion copies together
+
+**Observed failure:** the companion's development config suppressed the upstream package but not the installed fork. Pi 1.0.4 startup inside that checkout rejected four colliding subagent tools before creating a session. Adding empty arrays to an `autoload: false` delta did not suppress anything.
+
+**Invariant:** local development uses explicit exclusion patterns for both upstream and fork identities. `autoload: false` reuses the personal installation; `!**` suppresses its resources. Tests check the config contract and fresh startup from both repository roots. Published Git install pins use full commit SHAs, and package-lock root versions match the package version to keep managed installs clean.
+
 ## Regression checklist
 
 Before publishing a workflow revision, verify:

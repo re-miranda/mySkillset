@@ -1,6 +1,6 @@
 {
   "name": "tmux-subagents",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "license": "0BSD",
   "entrypoint": "SKILL.md",
   "description": "Pi or Claude Code orchestrates Pi- or Claude-backed children through harness-native lifecycle adapters.",
@@ -13,8 +13,8 @@
     "name": "pi-interactive-subagents",
     "repository": "https://github.com/re-miranda/pi-interactive-subagents",
     "submodulePath": "extensions/pi-interactive-subagents",
-    "pinnedCommit": "526b22488be398fda60795bd6b8a09701b6fe147",
-    "piPackage": "git:github.com/re-miranda/pi-interactive-subagents@526b22488be398fda60795bd6b8a09701b6fe147"
+    "pinnedCommit": "ae20d01024b4bf75a9536887d48f1e13649808b5",
+    "piPackage": "git:github.com/re-miranda/pi-interactive-subagents@ae20d01024b4bf75a9536887d48f1e13649808b5"
   },
   "validationCommand": "bash test.sh",
   "bridgeStateRoot": "/tmp/claude-agents",
