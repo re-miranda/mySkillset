@@ -31,6 +31,16 @@ This is the authoritative root-level guide to the skills in this repository.
 - **Validation:** `bash skills/convergent-technical-audit/test.sh`
 - **Safety:** Source artifact stays read-only; likely secret paths are excluded before dirty content capture; state is durable and private outside `/tmp` and the audited repository; discovery is sequential through preflighted least-privilege subagents with no recursive delegation; rejection requires affirmative disproof from a dedicated deep dive at least as thorough as discovery.
 
+### `excalidraw-review`
+
+- **Path:** [`skills/excalidraw-review`](skills/excalidraw-review/)
+- **Purpose:** Review numbered screenshots through annotations and labeled revisions while preserving the editable scene.
+- **When to use:** Screenshot → annotation → revision reviews on an Excalidraw board.
+- **When not to use:** Browser setup, automatic approval, or implementation without separate authorization.
+- **Installs:** Skill source for Pi and Claude Code; runtime installation is separate.
+- **Validation:** `bash skills/excalidraw-review/test.sh`
+- **Safety:** Reuses `agent-browser`; readiness is not approval; preserves originals, notes, images and deletion tombstones; verifies restoration in a fresh browser and provides an editable-backup fallback.
+
 ### `failure-we-fear-most`
 
 - **Path:** [`skills/failure-we-fear-most`](skills/failure-we-fear-most/)

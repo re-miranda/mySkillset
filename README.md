@@ -50,6 +50,10 @@ Preview, apply, and verify a minimal native Pi/ai-memory loop on a single-user L
 
 Run a bounded, evidence-backed audit of any technical artifact against frozen inputs. Sequential lens passes and conservative independent verification continue through two clean generalist rounds or an explicit cap; outputs are a Markdown report and append-only JSONL ledger, never source edits. See [`skills/convergent-technical-audit`](skills/convergent-technical-audit/README.md).
 
+### `excalidraw-review`
+
+Review numbered Excalidraw screenshots through annotations and labeled revisions. Reuses `agent-browser`, preserves the editable scene and images, separates readiness from approval, and verifies restoration in a fresh browser with an editable-backup fallback. See [`skills/excalidraw-review/SKILL.md`](skills/excalidraw-review/SKILL.md). Runtime installation is separate.
+
 ### `failure-we-fear-most`
 
 Select one credible catastrophic failure, then define prevention, rapid detection, reliable recovery, and a real pre-ship recovery drill. Installs the shared `/failure-we-fear-most` command and skill for both Pi and Claude Code. See [`skills/failure-we-fear-most`](skills/failure-we-fear-most/README.md).
