@@ -38,9 +38,15 @@ The installer converges both first-class targets by default:
 - Pi's `claude-code` child definition when the installed extension passes the executable `auto-permissions-v1` capability probe
 - Claude's canonical `/tmux-subagents` command
 - Claude-to-Pi bridge helpers
-- The marked Claude routing block
+- The Claude-only marked routing block in regular `$PI_AGENT_DIR/AGENTS.md`, with a verified native `$CLAUDE_HOME/rules/AGENTS.md` alias
 
 It recognizes every released legacy skill signature plus exact installer-generated backups. Retired `tmux-pi-subagents` trees are preserved under `backups/tmux-subagents/`, outside skill discovery roots; exact `/spawn-pi` and `/pi-subagents` files receive non-`.md` sibling backups. Ambiguous files or directories fail a complete destination preflight and remain unchanged. The retired Fable launcher is not installed or advertised by this workflow.
+
+Instruction updates require Python 3.10+ (standard library) and POSIX no-follow filesystem support. Whole-install preflight rejects missing prerequisites and collisions before any target writes. The helper updates the regular canonical document directly; it never writes through or replaces an existing alias. Unowned bytes, other producer blocks and existing owner/group/mode survive; current pairs retain mtimes and create no backups. New private documents/directories default to 0600/0700. No `CLAUDE.md`, import shim or duplicate legacy instruction output is generated.
+
+Legacy instruction filenames are read-only review inputs. Exact current/previous marker pairs are recognized, but any new withdrawal still requires separately authorized fresh native loading proof; this installer stops unchanged rather than manufacturing that proof. Mixed user rules require a reviewed complete-content merge plan. Released skill/command migration fixtures and signatures remain supported independently.
+
+Changed instructions have private journals under `$PI_AGENT_DIR/backups/tmux-subagents/instructions/`, outside discovery. Only ordinary instruction bytes and link metadata are retained, with verified holding/payload recovery. Explicit recovery is `python3 -B -I skills/tmux-subagents/scripts/instructions/cli.py rollback JOURNAL`; use it only with authority for those targets. It refuses concurrent edits. Each document publish is atomic, not the entire installer: later skill/command failure can leave a partial install, reported with the instruction journal. Native/global precedence and linked-worktree acceptance require a separate authorized rollout; local fixture PASS is not that acceptance.
 
 Optional tmux key configuration:
 
@@ -70,7 +76,7 @@ Maintainer-only failures live in [`references/KNOWN_FAILURES.md`](references/KNO
 bash skills/tmux-subagents/test.sh
 ```
 
-The suite covers install convergence and policy downgrade, every released migration signature, backup-safe discovery, atomic collision preflight, file-mode preservation, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, consumed watcher signals, stale-result re-arm and distinct second-round results, timeout handling, name reuse, and ambiguous-target rejection.
+The suite covers AGENTS-only fixture creation, exact-byte preservation, alias/ownership/collision preflight, missing Python, no-op metadata, publication drift/failure and conditional holding/payload/link recovery; plus install convergence and policy downgrade, every released skill migration signature, backup-safe discovery, generated-prompt isolation, stable pane IDs, launch recovery, journal delivery verification, consumed watcher signals, stale-result re-arm and distinct second-round results, timeout handling, name reuse, and ambiguous-target rejection.
 
 Pi 1.0.4 compatibility was checked with fresh offline startup from both repository roots, skill discovery and the companion regression suite. The companion's development config suppresses installed upstream/fork copies so the local extension loads without tool-name collisions. Automatic Pi-child completion waits for `agent_settled`, not a retryable `agent_end`. `interactive: true` controls parent stall nudges; keeping a Pi child open requires `auto-exit: false`. The bridge validation covers default Pi session storage; custom agent/session roots require separate delivery verification.
 

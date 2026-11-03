@@ -37,14 +37,25 @@ test_skill_frontmatter() {
 
 test_audit_invariants() {
   assert_file_contains 'score = max(drift ÷ budget, age ÷ floor)' "$AUDIT_SKILL"
+  assert_file_contains 'canonical AGENTS.md principles' "$AUDIT_SKILL"
   assert_file_contains 'Never fix findings during a run' "$AUDIT_SKILL"
   assert_file_contains 'stop and tell the user instead of creating one' "$AUDIT_SKILL"
 }
 
 test_replan_invariants() {
+  assert_file_contains 'canonical AGENTS.md —' "$REPLAN_SKILL"
   assert_file_contains 'Derive independently first' "$REPLAN_SKILL"
   assert_file_contains 'Keep exactly two commands' "$REPLAN_SKILL"
   assert_file_contains 'Plan shaped by' "$REPLAN_SKILL"
+}
+
+test_no_legacy_principles_source() {
+  local runtime_skill
+  for runtime_skill in "$AUDIT_SKILL" "$REPLAN_SKILL"; do
+    if grep -Fq 'CLAUDE.md' "$runtime_skill"; then
+      fail_test "legacy principles advice in '$runtime_skill' (expected canonical AGENTS.md)"
+    fi
+  done
 }
 
 test_installer_contract() {
@@ -75,6 +86,7 @@ main() {
   test_skill_frontmatter
   test_audit_invariants
   test_replan_invariants
+  test_no_legacy_principles_source
   test_installer_contract
   test_installer_dry_run
   printf 'PASS: rolling code audit skill pair\n'

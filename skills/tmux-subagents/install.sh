@@ -6,6 +6,8 @@ show_usage() {
 Usage: install.sh [options]
 
 Installs the generic tmux-subagents skill for both Claude Code and Pi.
+Requires Python 3.10+ (standard library) on a POSIX no-follow filesystem.
+Updates canonical PI_AGENT_DIR/AGENTS.md; verifies CLAUDE_HOME/rules/AGENTS.md.
 
 Options:
   --with-tmux   Install or update the recommended block in ~/.tmux.conf
@@ -76,6 +78,16 @@ require_replaceable_file() {
     fail_install "collision at '$target_path' (expected a regular file, not a directory or symlink)"
 }
 
+preflight_real_ancestors() {
+  local parent_path="$1"
+  while :; do
+    [ -d "$parent_path" ] && [ ! -L "$parent_path" ] || \
+      fail_install "parent collision at '$parent_path' (expected real directory ancestry without symlinks)"
+    [ "$parent_path" != "$(dirname "$parent_path")" ] || return 0
+    parent_path=$(dirname "$parent_path")
+  done
+}
+
 preflight_parent_directory() {
   local target_path="$1" parent_path
   parent_path=$(dirname "$target_path")
@@ -86,6 +98,7 @@ preflight_parent_directory() {
   [ -d "$parent_path" ] && [ ! -L "$parent_path" ] && \
     [ -w "$parent_path" ] && [ -x "$parent_path" ] || \
     fail_install "parent collision at '$parent_path' for '$target_path' (expected a writable real directory)"
+  preflight_real_ancestors "$parent_path"
 }
 
 preflight_destination_file() {
@@ -175,31 +188,27 @@ upsert_marked_file() {
   rm -f "$candidate"
 }
 
-is_unmarked_legacy_protocol() {
-  local target_path="$1"
-  grep -Fq '# Collaboration Protocol' "$target_path" && \
-    grep -Fq '## Receiving Pi messages' "$target_path" && \
-    grep -Fq 'When `[Pi/<name>] <message>` appears' "$target_path"
+initialize_instruction_helper() {
+  PYTHON_COMMAND=$(type -P python3) || \
+    fail_install "python3 absent (expected Python 3.10+ with POSIX no-follow support before any install write)"
+  INSTRUCTION_PLAN=$(mktemp)
+  INSTRUCTION_STEP_COMPLETE="0"
+  trap cleanup_instruction_plan EXIT
 }
 
-has_claude_workflow_marker() {
-  local target_path="$1"
-  grep -Fxq '<!-- BEGIN TMUX-SUBAGENTS-WORKFLOW -->' "$target_path" || \
-    grep -Fxq '<!-- BEGIN CLAUDE-PI-TMUX-WORKFLOW -->' "$target_path"
-}
-
-preflight_claude_instructions() {
-  local target_path="$CLAUDE_DIR/CLAUDE.md" scratch
-  preflight_destination_file "$target_path"
-  path_exists "$target_path" || return 0
-  if is_unmarked_legacy_protocol "$target_path" && ! has_claude_workflow_marker "$target_path"; then
-    fail_install "ambiguous legacy instructions in '$target_path' (preserved unchanged; move custom content or add an exact managed marker)"
+cleanup_instruction_plan() {
+  local status="$?"
+  rm -f -- "$INSTRUCTION_PLAN"
+  if [ "$status" -ne 0 ] && [ "$INSTRUCTION_STEP_COMPLETE" = "1" ]; then
+    printf '%s\n' 'install.sh: failed after instruction step; consult its journal above; later non-instruction writes may be partial' >&2
   fi
-  scratch=$(mktemp)
-  strip_known_blocks "$target_path" "$scratch" \
-    '<!-- BEGIN TMUX-SUBAGENTS-WORKFLOW -->' '<!-- END TMUX-SUBAGENTS-WORKFLOW -->' \
-    '<!-- BEGIN CLAUDE-PI-TMUX-WORKFLOW -->' '<!-- END CLAUDE-PI-TMUX-WORKFLOW -->'
-  rm -f "$scratch"
+}
+
+preflight_agent_instructions() {
+  "$PYTHON_COMMAND" -B -I "$SKILL_DIR/scripts/instructions/cli.py" plan \
+    --pi-root "$PI_DIR" --claude-root "$CLAUDE_DIR" \
+    --template "$SKILL_DIR/integrations/claude/AGENTS.addendum.md" \
+    --output "$INSTRUCTION_PLAN"
 }
 
 preflight_tmux_instructions() {
@@ -295,11 +304,11 @@ migrate_legacy_paths() {
   archive_known_fable_helper
 }
 
-install_claude_addendum() {
-  upsert_marked_file "$SKILL_DIR/integrations/claude/CLAUDE.addendum.md" \
-    "$CLAUDE_DIR/CLAUDE.md" 0644 \
-    '<!-- BEGIN TMUX-SUBAGENTS-WORKFLOW -->' '<!-- END TMUX-SUBAGENTS-WORKFLOW -->' \
-    '<!-- BEGIN CLAUDE-PI-TMUX-WORKFLOW -->' '<!-- END CLAUDE-PI-TMUX-WORKFLOW -->'
+install_agent_instructions() {
+  log_install_step "verify native alias $CLAUDE_DIR/rules/AGENTS.md; update $PI_DIR/AGENTS.md directly"
+  [ "$DRY_RUN" = "1" ] || \
+    "$PYTHON_COMMAND" -B -I "$SKILL_DIR/scripts/instructions/cli.py" apply "$INSTRUCTION_PLAN"
+  INSTRUCTION_STEP_COMPLETE="1"
 }
 
 install_tmux_addendum() {
@@ -397,7 +406,7 @@ preflight_backup_destinations() {
 }
 
 preflight_install() {
-  preflight_claude_instructions
+  preflight_agent_instructions
   preflight_tmux_instructions
   preflight_legacy_paths
   preflight_skill_destination "$CLAUDE_DIR/skills/tmux-subagents"
@@ -429,21 +438,26 @@ initialize_install_paths() {
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 }
 
-main() {
-  parse_args "$@"
-  initialize_install_paths
-  preflight_install
+install_preflighted_targets() {
+  install_agent_instructions
   migrate_legacy_paths
   install_skill_tree "$CLAUDE_DIR/skills/tmux-subagents"
   install_skill_tree "$PI_DIR/skills/tmux-subagents"
   install_pi_agent_definition
   install_claude_bridge
-  install_claude_addendum
   [ "$INSTALL_TMUX" != "1" ] || install_tmux_addendum
   [ "$INSTALL_TMUX" = "1" ] || log_install_step "tmux config not changed; rerun with --with-tmux to manage it"
   log_install_step "restart required: open fresh Pi and Claude Code parent sessions before using the new routing"
   log_install_step "existing agent panes are retained for inspection only; do not reuse their loaded workflow"
   log_install_step "done"
+}
+
+main() {
+  parse_args "$@"
+  initialize_install_paths
+  initialize_instruction_helper
+  preflight_install
+  install_preflighted_targets
 }
 
 main "$@"

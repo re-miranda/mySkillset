@@ -20,7 +20,7 @@ the standing issue titled "Rolling code audit — standing review index".
    add value — and continue only on explicit confirmation.
 2. **Derive independently first**: before re-reading the existing plan in detail, survey
    the repo fresh — `git ls-files` distributions, 90-day churn
-   (`git log --since=90.days --name-only --pretty=format:`), open issues, CLAUDE.md —
+   (`git log --since=90.days --name-only --pretty=format:`), open issues, canonical AGENTS.md —
    and sketch the partition, budgets, scoring, and review checklist you would design
    from scratch. Anchoring on the old plan defeats the purpose of this command.
 3. **Then diff against the current plan**: the standing issue body, its run-log comments,
