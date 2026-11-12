@@ -49,6 +49,7 @@ class InstructionInstallerTests(InstructionFixture):
         return installer
 
     def test_fresh_output_is_agents_only_and_reinstall_preserves_metadata(self) -> None:
+        """Fresh install writes only AGENTS output and a reinstall keeps its metadata."""
         installer = self.installer()
         first = installer.run()
         self.assertEqual(first.returncode, 0, first.stderr)
@@ -61,6 +62,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_dry_run_leaves_fresh_and_existing_roots_unchanged(self) -> None:
+        """Dry run changes nothing in fresh or existing roots."""
         installer = self.installer()
         before = tree_signature(self.root)
         result = installer.run("--dry-run")
@@ -74,6 +76,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_missing_python_fails_before_any_target_write(self) -> None:
+        """A missing Python interpreter fails before any target write."""
         installer = self.installer()
         pythonless = PythonlessPath(self.root / "pythonless tools")
         installer.environment["PATH"] = str(pythonless.directory)
@@ -84,6 +87,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_generic_skill_collision_does_not_apply_instruction_candidate(self) -> None:
+        """A generic skill collision keeps the instruction candidate unapplied."""
         self.seed_canonical(b"original user safety\n", 0o664)
         self.seed_alias()
         (self.claude / "skills/tmux-subagents/SKILL.md").mkdir(parents=True)
@@ -94,6 +98,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_deep_generic_parent_escape_refuses_before_instruction_write(self) -> None:
+        """A deep generic parent escape refuses before writing instructions."""
         self.seed_canonical()
         self.claude.mkdir()
         outside = self.root / "unrelated existing tree"
@@ -106,6 +111,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_alias_collision_prevents_every_installer_write(self) -> None:
+        """An alias collision blocks every installer write."""
         self.seed_canonical()
         self.alias.parent.mkdir(parents=True)
         self.alias.write_bytes(b"foreign producer's ordinary rules file\n")
@@ -116,6 +122,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_marked_legacy_and_mixed_legacy_never_get_auto_withdrawn(self) -> None:
+        """Marked and mixed legacy content is never withdrawn automatically."""
         self.claude.mkdir()
         legacy = self.claude / "CLAUDE.md"
         for prefix in (b"", b"user policy with no complete-content approval\n"):
@@ -128,6 +135,7 @@ class InstructionInstallerTests(InstructionFixture):
             self.assertEqual(before, tree_signature(self.root))
 
     def test_template_rename_preserves_native_workflow_verbatim(self) -> None:
+        """A template rename keeps the native workflow text verbatim."""
         previous = (SKILL_ROOT / "references/legacy/instructions/2.0.4.signature").read_bytes()
         guard = (b"Apply this block only when the active harness is Claude Code. Pi uses its native "
                  b"subagent lifecycle, not this Claude-only workflow.\n\n")
@@ -135,6 +143,7 @@ class InstructionInstallerTests(InstructionFixture):
         self.assertFalse((SKILL_ROOT / "integrations/claude/CLAUDE.addendum.md").exists())
 
     def test_active_source_selects_renamed_template_and_declares_prerequisite(self) -> None:
+        """The active source picks the renamed template and declares its prerequisite."""
         for relative in ("install.sh", "manifest.json", "README.md"):
             text = (SKILL_ROOT / relative).read_text()
             with self.subTest(relative=relative):

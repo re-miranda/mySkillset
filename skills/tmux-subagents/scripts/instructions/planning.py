@@ -52,14 +52,21 @@ def bounded_replacement(payload: bytes, template: bytes) -> bytes:
     return candidate
 
 
+def describe_template(template: bytes) -> str:
+    """Show the offending bytes; e.g. a 3-byte b'abc' template reports length=3 head=b'abc'."""
+    return f"length={len(template)} head={template[:80]!r} tail={template[-80:]!r}"
+
+
 def validate_template(template: bytes) -> None:
     """Require a complete scoped source block; e.g. no unguarded Claude workflow in Pi context."""
+    seen = describe_template(template)
     if owned_span(template) != (0, len(template)) or not template.startswith(BEGIN + b"\n"):
-        raise ValueError("template; expected one complete current managed block")
+        raise ValueError(f"template {seen}; expected one complete current managed block")
     if b"Apply this block only when the active harness is Claude Code." not in template:
-        raise ValueError("template; expected the Claude-only applicability guard inside its markers")
+        raise ValueError(f"template {seen}; expected the Claude-only applicability guard "
+                         "inside its markers")
     if not template.endswith(END + b"\n"):
-        raise ValueError("template; expected the current closing marker and trailing newline")
+        raise ValueError(f"template {seen}; expected the current closing marker and trailing newline")
 
 
 def inspect_legacy(path: Path, canonical: Path, files: InstructionFiles) -> None:

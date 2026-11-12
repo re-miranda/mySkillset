@@ -116,10 +116,12 @@ def validate_plan_shape(plan: Plan) -> Plan:
         raise ValueError(f"plan paths={paths!r}; expected absolute native paths without traversal")
     expected = native_link_texts(plan.canonical, plan.alias.parent)
     if plan.before.kind not in {"absent", "regular"} or plan.alias_text not in expected:
-        raise ValueError("plan destinations; expected regular canonical and exact native alias text")
+        raise ValueError(f"plan destinations kind={plan.before.kind!r} alias_text={plan.alias_text!r}; "
+                         "expected regular canonical and exact native alias text")
     if plan.alias_before.kind != "absent" and (plan.alias_before.kind != "link" or
             plan.alias_before.link not in expected or plan.before.kind != "regular"):
-        raise ValueError("plan alias_before; expected absent or exact link to existing canonical")
+        raise ValueError(f"plan alias_before={plan.alias_before!r}; "
+                         "expected absent or exact link to existing canonical")
     recovery = plan.canonical.parent / "backups/tmux-subagents/instructions/entry"
     allowed = {parent for path in (plan.canonical, plan.alias, recovery) for parent in path.parents}
     actual = {parent.path for parent in plan.parents} | set(plan.missing)
@@ -132,7 +134,8 @@ def decode_directories(fields: dict[str, object]) -> tuple[tuple[Parent, ...], t
     """Validate directory identities; e.g. do not accept an arbitrary missing-parent list."""
     parent_values, missing_values = fields.get("parents"), fields.get("missing")
     if not isinstance(parent_values, list) or not isinstance(missing_values, list):
-        raise ValueError("parents/missing; expected two directory lists")
+        raise ValueError(f"parents={type(parent_values).__name__} missing={type(missing_values).__name__}; "
+                         "expected two directory lists")
     parents: list[Parent] = []
     for value in parent_values:
         entry = mapping(value)

@@ -15,12 +15,14 @@ from records import Image, Plan, integer, mapping, string
 
 class InstructionPlanTests(InstructionFixture):
     def test_preflight_has_zero_target_writes(self) -> None:
+        """Preflight planning performs no target writes and the plan round-trips."""
         before = tree_signature(self.root)
         plan = self.plan()
         self.assertEqual(before, tree_signature(self.root))
         self.assertEqual(Plan.decode(plan.encode()), plan)
 
     def test_unowned_bytes_survive_current_and_previous_pairs(self) -> None:
+        """Bytes outside the managed markers survive for current and previous marker pairs."""
         prefix = b"user\xff\r\n\r\n<!-- ai-memory:start -->\r\nprofile\r\n<!-- ai-memory:end -->\r\n"
         suffix = b"\r\n\r\nuser suffix without newline"
         for begin, end in ((BEGIN, END), (OLD_BEGIN, OLD_END)):
@@ -29,12 +31,14 @@ class InstructionPlanTests(InstructionFixture):
                 self.assertEqual(replacement(before, self.template), prefix + self.template + suffix)
 
     def test_append_preserves_all_original_bytes(self) -> None:
+        """Appending a block keeps every original byte."""
         for before in (b"", b"user", b"user\n", b"user\r\n\r\n"):
             with self.subTest(before=before):
                 self.assertTrue(replacement(before, self.template).startswith(before))
                 self.assertEqual(replacement(before, self.template).count(BEGIN), 1)
 
     def test_malformed_duplicate_and_nested_pairs_refuse(self) -> None:
+        """Malformed, duplicate and nested marker pairs are refused."""
         cases = (BEGIN, END, BEGIN + b"\n" + OLD_END, BEGIN + b"\n" + BEGIN + b"\n" + END,
                  BEGIN + b"\n" + END + b"\n" + OLD_BEGIN + b"\n" + OLD_END)
         for payload in cases:
@@ -42,12 +46,14 @@ class InstructionPlanTests(InstructionFixture):
                 owned_span(payload)
 
     def test_template_requires_guard_inside_complete_current_pair(self) -> None:
+        """A template needs the Claude guard inside one complete current pair."""
         guardless = BEGIN + b"\nworkflow\n" + END + b"\n"
         for template in (guardless, b"outside\n" + self.template, self.template.rstrip(b"\n")):
             with self.subTest(template=template), self.assertRaisesRegex(ValueError, "expected"):
                 validate_template(template)
 
     def test_canonical_symlink_hardlink_directory_and_fifo_refuse(self) -> None:
+        """Non-regular canonical targets are refused."""
         self.pi.mkdir()
         other = self.root / "user.md"
         other.write_bytes(b"do not overwrite")
@@ -70,6 +76,7 @@ class InstructionPlanTests(InstructionFixture):
             os.mkfifo(self.canonical)
 
     def test_alias_collision_matrix_refuses_unchanged(self) -> None:
+        """Alias collisions are refused and leave the tree unchanged."""
         self.seed_canonical()
         self.alias.parent.mkdir(parents=True)
         for kind in ("regular", "directory", "wrong", "dangling"):
@@ -89,6 +96,7 @@ class InstructionPlanTests(InstructionFixture):
             self.alias.symlink_to(self.root / ("missing.md" if kind == "dangling" else "user.md"))
 
     def test_correct_link_to_missing_canonical_is_dangling_not_admitted(self) -> None:
+        """A correct link to a missing canonical file is dangling and refused."""
         self.seed_alias()
         before = tree_signature(self.root)
         with self.assertRaisesRegex(ValueError, "expected exact native link"):
@@ -96,6 +104,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_parent_symlink_and_lexical_traversal_refuse(self) -> None:
+        """Symlinked parents and lexical traversal are refused."""
         self.pi.symlink_to(self.root, target_is_directory=True)
         before = tree_signature(self.root)
         with self.assertRaises(OSError):
@@ -106,6 +115,7 @@ class InstructionPlanTests(InstructionFixture):
             self.plan()
 
     def test_alias_lexical_escape_is_not_equivalent_to_native_link(self) -> None:
+        """A lexically escaping alias is not accepted as the native link."""
         self.seed_canonical()
         self.seed_alias("../../escape/../pi agent/AGENTS.md")
         before = tree_signature(self.root)
@@ -114,6 +124,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_foreign_document_owner_is_rejected_by_io_boundary(self) -> None:
+        """A document owned by a foreign user is rejected at the I/O boundary."""
         self.seed_canonical()
         foreign_actor = InstructionFiles(os.getuid() + 1, {os.getgid()}, os.getgid(), exchange)
         before = tree_signature(self.root)
@@ -122,6 +133,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_recognized_legacy_blocks_require_native_proof_without_mutation(self) -> None:
+        """Recognized legacy blocks need native proof and are not mutated."""
         self.claude.mkdir()
         legacy = self.claude / "CLAUDE.md"
         for begin, end in ((BEGIN, END), (OLD_BEGIN, OLD_END)):
@@ -133,6 +145,7 @@ class InstructionPlanTests(InstructionFixture):
             self.assertEqual(before, tree_signature(self.root))
 
     def test_mixed_and_unknown_legacy_content_stops_without_guessing(self) -> None:
+        """Mixed or unknown legacy content stops the run without guessing."""
         self.claude.mkdir()
         legacy = self.claude / "CLAUDE.md"
         for payload in (b"user safety\n", b"custom\n" + BEGIN + b"\nold\n" + END + b"\n"):
@@ -143,6 +156,7 @@ class InstructionPlanTests(InstructionFixture):
             self.assertEqual(before, tree_signature(self.root))
 
     def test_legacy_alias_is_detection_only_and_never_followed(self) -> None:
+        """A legacy alias is only detected, never followed."""
         self.seed_canonical()
         self.claude.mkdir()
         legacy = self.claude / "CLAUDE.md"
@@ -153,6 +167,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_foreign_profile_parent_refuses_without_chmod_or_substitution(self) -> None:
+        """A foreign profile parent is refused without chmod or substitution."""
         self.seed_canonical()
         self.files = ForeignProfileParentFiles(self.pi)
         before = tree_signature(self.root)
@@ -161,6 +176,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_readonly_recovery_parent_refuses_before_native_creation(self) -> None:
+        """A read-only recovery parent refuses before native creation."""
         recovery = self.pi / "backups/tmux-subagents/instructions"
         recovery.mkdir(parents=True)
         self.files = DeniedParentFiles(recovery)
@@ -170,6 +186,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_completed_candidate_limit_refuses_before_writes(self) -> None:
+        """An over-limit completed candidate is refused before any write."""
         self.seed_canonical(b"u" * (1024 * 1024))
         before = tree_signature(self.root)
         with self.assertRaisesRegex(ValueError, "expected instruction document <=1MiB"):
@@ -177,6 +194,7 @@ class InstructionPlanTests(InstructionFixture):
         self.assertEqual(before, tree_signature(self.root))
 
     def test_persisted_alias_and_parent_plan_drift_refuse(self) -> None:
+        """A persisted plan with drifted alias or parents is refused."""
         encoded = self.plan().encode()
         encoded["alias_text"] = "../wrong.md"
         with self.assertRaisesRegex(ValueError, "exact native alias text"):
@@ -187,6 +205,7 @@ class InstructionPlanTests(InstructionFixture):
             Plan.decode(encoded)
 
     def test_typed_records_reject_bad_shapes(self) -> None:
+        """Typed record decoders reject malformed shapes."""
         for operation, argument in ((mapping, []), (Image.decode, {"kind": "fifo"}),
                                     (Plan.decode, {"canonical": 42})):
             with self.subTest(operation=operation), self.assertRaises(ValueError):
@@ -195,3 +214,45 @@ class InstructionPlanTests(InstructionFixture):
             with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, "expected"):
                 operation({"field": True}, "field")
         self.assertEqual(Image.decode(Image("link", link="../AGENTS.md").encode()).link, "../AGENTS.md")
+
+
+class OffendingValueMessageTests(InstructionFixture):
+    def test_template_messages_carry_length_head_and_tail(self) -> None:
+        """Template refusals name the offending bytes; e.g. a 3-byte template reports length=3."""
+        long_bad = b"x" * 200 + b"\xff-tail"
+        for template in (b"abc", BEGIN + b"\nworkflow\n" + END + b"\n", long_bad):
+            with self.subTest(length=len(template)), self.assertRaises(ValueError) as caught:
+                validate_template(template)
+            message = str(caught.exception)
+            self.assertIn(f"length={len(template)}", message)
+            self.assertIn(repr(template[:80]), message)
+            self.assertIn(repr(template[-80:]), message)
+
+    def test_unclosed_template_reports_third_message_value(self) -> None:
+        """The closing-marker refusal also names the template; e.g. no trailing newline."""
+        guard = b"Apply this block only when the active harness is Claude Code."
+        template = BEGIN + b"\n" + guard + b"\n" + END
+        with self.assertRaisesRegex(ValueError, f"length={len(template)}"):
+            validate_template(template)
+
+    def test_destination_message_names_kind_and_alias_text(self) -> None:
+        """Destination refusal shows the bad alias text; e.g. '../wrong.md'."""
+        encoded = self.plan().encode()
+        encoded["alias_text"] = "../wrong.md"
+        with self.assertRaisesRegex(ValueError, r"alias_text='\.\./wrong\.md'") as caught:
+            Plan.decode(encoded)
+        self.assertIn("kind='absent'", str(caught.exception))
+
+    def test_alias_before_message_names_the_record(self) -> None:
+        """Alias refusal shows the alias_before image; e.g. a link to the wrong target."""
+        encoded = self.plan().encode()
+        encoded["alias_before"] = Image("link", link="../elsewhere.md").encode()
+        with self.assertRaisesRegex(ValueError, "alias_before=.*elsewhere.md"):
+            Plan.decode(encoded)
+
+    def test_directory_message_names_list_types(self) -> None:
+        """Directory refusal shows the types received; e.g. parents=str missing=NoneType."""
+        encoded = self.plan().encode()
+        encoded["parents"], encoded["missing"] = "oops", None
+        with self.assertRaisesRegex(ValueError, "parents=str missing=NoneType"):
+            Plan.decode(encoded)
