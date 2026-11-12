@@ -17,6 +17,7 @@ from files import InstructionFiles
 from planning import build_plan
 from records import Image, Parent, Plan
 
+REAL_FSYNC = os.fsync
 LATE_EDIT = b"USER EDIT SAVED AFTER FINAL CHECK\n"
 EDITOR_SAVE = b"EDITOR ATOMIC SAVE AFTER FINAL CHECK\n"
 SECOND_SAVE = b"SECOND SAVE DURING SWAP BACK\n"
@@ -173,6 +174,57 @@ class SecondSaveExchange:
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(SECOND_SAVE)
         exchange(directory_fd, first, second)
+
+
+class RenameOverSwapBackExchange:
+    """Model a second save by editor rename-over while our staged file holds the name."""
+
+    def __init__(self) -> None:
+        """Count swaps; e.g. the new file replaces the name right before the swap back."""
+        self.calls = 0
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Swap for real; e.g. before call 2 a fresh file is renamed over the destination."""
+        self.calls += 1
+        if self.calls == 2:
+            descriptor = os.open("editor-second.tmp", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                 0o600, dir_fd=directory_fd)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(SECOND_SAVE)
+            os.replace("editor-second.tmp", second, src_dir_fd=directory_fd,
+                       dst_dir_fd=directory_fd)
+        exchange(directory_fd, first, second)
+
+
+class FailingNextSync:
+    """Stand in for os.fsync: fail once when armed, otherwise sync for real (MIR-887)."""
+
+    def __init__(self) -> None:
+        """Start disarmed; e.g. staging syncs pass until the swap back arms the fault."""
+        self.armed = False
+
+    def __call__(self, descriptor: int) -> None:
+        """Raise EIO for the first sync after arming; e.g. the directory sync after swap back."""
+        if not self.armed:
+            REAL_FSYNC(descriptor)
+            return
+        self.armed = False
+        raise OSError(errno.EIO, f"fixture: sync failed for descriptor={descriptor}")
+
+
+class UnsyncedSwapBackExchange:
+    """Do both swaps for real, then make the sync that follows the swap back fail."""
+
+    def __init__(self, sync: FailingNextSync) -> None:
+        """Bind the sync fake to arm; e.g. call 2 is the swap back."""
+        self.calls = 0
+        self.sync = sync
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Swap for real; e.g. after call 2 the next os.fsync raises EIO."""
+        self.calls += 1
+        exchange(directory_fd, first, second)
+        self.sync.armed = self.calls == 2
 
 
 def tree_signature(root: Path) -> dict[str, tuple[object, ...]]:

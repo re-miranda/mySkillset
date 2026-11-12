@@ -137,8 +137,23 @@ class InstructionFiles:
                 self._publish_at(directory, temporary, path, expected)
                 os.fsync(directory)
                 return self._snapshot_at(directory, path.name, PUBLISH_LIMIT)
+            except (OSError, ValueError) as failure:
+                self._refuse_naming_stranded_at(directory, temporary, staged, path, failure)
+                raise
             finally:
                 self._remove_temporary(directory, temporary, staged)
+
+    def _refuse_naming_stranded_at(self, directory: int, temporary: str, staged: os.stat_result,
+                                   path: Path, failure: Exception) -> None:
+        # MIR-887: cleanup keeps any entry that is not our untouched staged file (it can be
+        # a user's newest save), so the failure has to say where that entry is.
+        stranded = path.with_name(temporary)
+        kept = self._remove_temporary(directory, temporary, staged)
+        if not kept or repr(str(stranded)) in str(failure):
+            return
+        raise ValueError(f"{failure}; entry kept at {str(stranded)!r} may hold a later save; "
+                         "expected only our untouched staged file there, so it was not "
+                         "removed") from failure
 
     def _require_image_at(self, directory: int, path: Path, expected: Image) -> None:
         current = self._snapshot_at(directory, path.name, PUBLISH_LIMIT)
@@ -202,8 +217,9 @@ class InstructionFiles:
             self._require_displaced_at(directory, temporary, expected)
         except (OSError, ValueError) as conflict:
             kept = self._return_displaced_at(directory, temporary, path)
-            raise ValueError(f"entry={str(path)!r}; {conflict}; concurrent version "
-                             f"preserved at {str(kept)!r}, nothing published") from conflict
+            raise ValueError(f"entry={str(path)!r}; {conflict}; concurrent version preserved at "
+                             f"{str(kept)!r}, nothing published"
+                             f"{self._unsynced_note_at(directory)}") from conflict
         # Safe to drop: its bytes equal the recorded before-state held in recovery.
         os.unlink(temporary, dir_fd=directory)
 
@@ -227,12 +243,22 @@ class InstructionFiles:
                              f"expected {describe_image(expected)}")
 
     def _return_displaced_at(self, directory: int, temporary: str, path: Path) -> Path:
+        # MIR-887: only a failed swap back means the displaced version is still at the
+        # scratch name; after a successful one that name holds our staged file again.
         try:
             self.exchange(directory, temporary, path.name)
-            os.fsync(directory)
-            return path
         except OSError:
             return path.with_name(self._keep_conflict_at(directory, temporary))
+        return path
+
+    def _unsynced_note_at(self, directory: int) -> str:
+        # A failed sync is reported, never allowed to change which path the error names.
+        try:
+            os.fsync(directory)
+        except OSError as failure:
+            return (f"; directory sync failed ({failure}), expected the preserved entry to "
+                    "be durable, so it may not survive a crash")
+        return ""
 
     def _keep_conflict_at(self, directory: int, temporary: str) -> str:
         # Never unlink the displaced version; a stable name tells it apart from scratch files.
@@ -245,15 +271,18 @@ class InstructionFiles:
         except OSError:
             return temporary
 
-    def _remove_temporary(self, directory: int, name: str, expected: os.stat_result) -> None:
+    def _remove_temporary(self, directory: int, name: str, expected: os.stat_result) -> bool:
+        # Returns whether an entry was kept at the name, so a failure can report it (MIR-887).
         try:
             current = os.stat(name, dir_fd=directory, follow_symlinks=False)
         except FileNotFoundError:
-            return
+            return False
         # Size and mtime too: a save that landed in our staged file while it held the
         # destination name must survive cleanup after a swap back.
-        if staged_identity(current) == staged_identity(expected):
-            os.unlink(name, dir_fd=directory)
+        if staged_identity(current) != staged_identity(expected):
+            return True
+        os.unlink(name, dir_fd=directory)
+        return False
 
     def create_alias(self, path: Path, text: str) -> Image:
         """Create a missing link without replacement; e.g. refuse a late collision."""

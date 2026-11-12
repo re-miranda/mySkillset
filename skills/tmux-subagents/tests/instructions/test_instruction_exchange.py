@@ -5,11 +5,14 @@ import errno
 import json
 import os
 from pathlib import Path
+from unittest import mock
 
 # instruction_fixtures puts the reviewed source directory on sys.path; import it first.
 from instruction_fixtures import (
-    EDITOR_SAVE, LATE_EDIT, SECOND_SAVE, FailingSwapBackExchange, FaultInstructionFiles,
-    InstructionFixture, LateEditFiles, RenameOverFiles, SecondSaveExchange, UnsupportedExchange)
+    EDITOR_SAVE, LATE_EDIT, SECOND_SAVE, FailingNextSync, FailingSwapBackExchange,
+    FaultInstructionFiles, InstructionFixture, LateEditFiles, RenameOverFiles,
+    RenameOverSwapBackExchange, SecondSaveExchange, UnsupportedExchange,
+    UnsyncedSwapBackExchange)
 from exchange import exchange
 from transaction import apply_plan, rollback_journal
 
@@ -101,12 +104,40 @@ class InstructionExchangeTests(InstructionFixture):
         self.seed_canonical(ORIGINAL)
         before = self.files.snapshot(self.canonical)
         late = LateEditFiles(self.canonical, SecondSaveExchange())
-        with self.assertRaises(ValueError):
+        with self.assertRaises(ValueError) as raised:
             late.publish(self.canonical, before, self.template, before.mode, before.gid)
+        self.assert_second_save_stranded_and_named(str(raised.exception))
+
+    def assert_second_save_stranded_and_named(self, message: str) -> None:
+        """Share the MIR-887 leftover assertions; e.g. the error carries the scratch path."""
         self.assertEqual(self.canonical.read_bytes(), LATE_EDIT)
         names = self.scratch_names()
         self.assertEqual(len(names), 1)
         self.assertEqual((self.pi / names[0]).read_bytes(), SECOND_SAVE)
+        self.assertIn(repr(str(self.pi / names[0])), message)
+
+    def test_rename_over_before_swap_back_survives_and_is_named(self) -> None:
+        """A second save by rename-over ends up at the scratch name and the error says so."""
+        self.seed_canonical(ORIGINAL)
+        before = self.files.snapshot(self.canonical)
+        late = LateEditFiles(self.canonical, RenameOverSwapBackExchange())
+        with self.assertRaises(ValueError) as raised:
+            late.publish(self.canonical, before, self.template, before.mode, before.gid)
+        self.assert_second_save_stranded_and_named(str(raised.exception))
+
+    def test_failed_sync_after_swap_back_reports_canonical_not_conflict(self) -> None:
+        """A sync failure after a good swap back must not relabel our staged file as the user's."""
+        self.seed_canonical(ORIGINAL)
+        before = self.files.snapshot(self.canonical)
+        sync = FailingNextSync()
+        late = LateEditFiles(self.canonical, UnsyncedSwapBackExchange(sync))
+        with mock.patch("os.fsync", sync), self.assertRaises(ValueError) as raised:
+            late.publish(self.canonical, before, self.template, before.mode, before.gid)
+        self.assertEqual(self.canonical.read_bytes(), LATE_EDIT)
+        self.assertEqual(self.scratch_names(), [])
+        self.assertIn(f"preserved at {str(self.canonical)!r}", str(raised.exception))
+        self.assertNotIn(".tmux-agents-", str(raised.exception))
+        self.assertIn("directory sync failed", str(raised.exception))
 
     def test_successful_swap_publishes_and_leaves_no_scratch(self) -> None:
         """The ordinary update goes through the swap and removes the displaced original."""
