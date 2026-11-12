@@ -7,10 +7,10 @@ from pathlib import Path
 from instruction_fixtures import (
     DeniedParentFiles, ForeignProfileParentFiles, InstructionFixture, tree_signature,
 )
-from exchange import exchange
+from exchange import exchange, move_without_replace
 from files import InstructionFiles
 from planning import BEGIN, END, OLD_BEGIN, OLD_END, owned_span, replacement, validate_template
-from records import Image, Plan, integer, mapping, string
+from records import Image, Plan, describe_value, integer, mapping, string
 
 
 class InstructionPlanTests(InstructionFixture):
@@ -126,7 +126,8 @@ class InstructionPlanTests(InstructionFixture):
     def test_foreign_document_owner_is_rejected_by_io_boundary(self) -> None:
         """A document owned by a foreign user is rejected at the I/O boundary."""
         self.seed_canonical()
-        foreign_actor = InstructionFiles(os.getuid() + 1, {os.getgid()}, os.getgid(), exchange)
+        foreign_actor = InstructionFiles(os.getuid() + 1, {os.getgid()}, os.getgid(), exchange,
+                                         move_without_replace)
         before = tree_signature(self.root)
         with self.assertRaisesRegex(ValueError, "owned single-link"):
             foreign_actor.snapshot(self.canonical)
@@ -251,8 +252,13 @@ class OffendingValueMessageTests(InstructionFixture):
             Plan.decode(encoded)
 
     def test_directory_message_names_list_types(self) -> None:
-        """Directory refusal shows the types received; e.g. parents=str missing=NoneType."""
+        """Directory refusal shows type and value; e.g. parents=str 'oops' missing=NoneType None."""
         encoded = self.plan().encode()
         encoded["parents"], encoded["missing"] = "oops", None
-        with self.assertRaisesRegex(ValueError, "parents=str missing=NoneType"):
+        with self.assertRaisesRegex(ValueError, "parents=str 'oops' missing=NoneType None; expected"):
             Plan.decode(encoded)
+
+    def test_describe_value_bounds_a_long_repr(self) -> None:
+        """A long offending value is cut at the limit so the message stays readable."""
+        self.assertEqual(describe_value([1, 2]), "list [1, 2]")
+        self.assertEqual(describe_value("x" * 200, limit=10), "str 'xxxxxxxxx...")

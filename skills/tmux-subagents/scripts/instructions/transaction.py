@@ -189,11 +189,11 @@ def restore_entry(path: Path, before: Image, after: Image, recovery: Path,
     if before.kind == "link":
         if current.kind != "absent":
             raise ValueError(f"entry={str(path)!r}; expected absent recorded link withdrawal")
-        files.create_alias(path, before.link)
-    else:
-        payload = recovery_payload(recovery, before, files)
-        files.publish(path, after, payload, before.mode, before.gid)
-    files.restore_metadata(path, before)
+        # MIR-889: group and mtime are restored before publication, never by name after it.
+        files.create_alias(path, before.link, before)
+        return
+    payload = recovery_payload(recovery, before, files)
+    files.publish(path, after, payload, before.mode, before.gid, before.mtime_ns)
 
 
 def recovery_payload(recovery: Path, before: Image, files: InstructionFiles) -> bytes:

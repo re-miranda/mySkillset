@@ -130,12 +130,19 @@ def validate_plan_shape(plan: Plan) -> Plan:
     return plan
 
 
+def describe_value(value: object, limit: int = 80) -> str:
+    """Name a rejected value by type and bounded repr; e.g. str 'oops' or list [1, 2, ...]."""
+    text = repr(value)
+    shown = text if len(text) <= limit else text[:limit] + "..."
+    return f"{type(value).__name__} {shown}"
+
+
 def decode_directories(fields: dict[str, object]) -> tuple[tuple[Parent, ...], tuple[Path, ...]]:
     """Validate directory identities; e.g. do not accept an arbitrary missing-parent list."""
     parent_values, missing_values = fields.get("parents"), fields.get("missing")
     if not isinstance(parent_values, list) or not isinstance(missing_values, list):
-        raise ValueError(f"parents={type(parent_values).__name__} missing={type(missing_values).__name__}; "
-                         "expected two directory lists")
+        raise ValueError(f"parents={describe_value(parent_values)} "
+                         f"missing={describe_value(missing_values)}; expected two directory lists")
     parents: list[Parent] = []
     for value in parent_values:
         entry = mapping(value)

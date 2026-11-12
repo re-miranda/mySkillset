@@ -8,11 +8,12 @@ import stat
 import sys
 import tempfile
 import unittest
+from collections.abc import Callable
 from pathlib import Path
 
 SKILL_ROOT = Path(__file__).absolute().parents[2]
 sys.path.insert(0, str(SKILL_ROOT / "scripts" / "instructions"))
-from exchange import ExchangeNames, exchange
+from exchange import ExchangeNames, MoveWithoutReplace, exchange, move_without_replace
 from files import InstructionFiles
 from planning import build_plan
 from records import Image, Parent, Plan
@@ -21,35 +22,80 @@ REAL_FSYNC = os.fsync
 LATE_EDIT = b"USER EDIT SAVED AFTER FINAL CHECK\n"
 EDITOR_SAVE = b"EDITOR ATOMIC SAVE AFTER FINAL CHECK\n"
 SECOND_SAVE = b"SECOND SAVE DURING SWAP BACK\n"
+RECREATED = b"FILE CREATED AT THE NAME WHILE THE ENTRY WAS MOVED ASIDE\n"
+USER_LINK = "user-own-rules.md"
+
+# A user's save into one name of an open directory; e.g. save_in_place(fd, "AGENTS.md").
+LateSave = Callable[[int, str], None]
+
+
+def save_in_place(directory_fd: int, name: str) -> None:
+    """Rewrite the entry through a new descriptor; e.g. a plain editor write of LATE_EDIT."""
+    descriptor = os.open(name, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW, dir_fd=directory_fd)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(LATE_EDIT)
+
+
+def save_by_rename_over(directory_fd: int, name: str) -> None:
+    """Write a new file and rename it over the name; e.g. an editor's atomic EDITOR_SAVE."""
+    descriptor = os.open("editor-save.tmp", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                         0o600, dir_fd=directory_fd)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(EDITOR_SAVE)
+    os.replace("editor-save.tmp", name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+
+
+def replace_with_user_link(directory_fd: int, name: str) -> None:
+    """Swap in the user's own symlink; e.g. the alias now points at USER_LINK."""
+    os.symlink(USER_LINK, "user-link.tmp", dir_fd=directory_fd)
+    os.replace("user-link.tmp", name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+
+
+def same_directory(directory_fd: int, path: Path) -> bool:
+    """Tell the two AGENTS.md parents apart; e.g. the Pi root versus the native rules directory."""
+    opened, named = os.fstat(directory_fd), path.stat()
+    return (opened.st_dev, opened.st_ino) == (named.st_dev, named.st_ino)
+
+
+def save_at(path: Path, save: LateSave) -> None:
+    """Apply a save to a full path; e.g. save_at(canonical, save_in_place)."""
+    directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        save(directory_fd, path.name)
+    finally:
+        os.close(directory_fd)
 
 
 class FaultInstructionFiles(InstructionFiles):
     """Inject explicit fixture publication failures, never a production environment bypass."""
 
-    def __init__(self, swap: ExchangeNames = exchange) -> None:
+    def __init__(self, swap: ExchangeNames = exchange,
+                 move: MoveWithoutReplace = move_without_replace) -> None:
         """Use the local fixture owner; e.g. no privileged chown-based tests."""
-        super().__init__(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid(), swap)
+        super().__init__(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid(), swap,
+                         move)
         self.fail_publication: Path | None = None
         self.drift_publication: Path | None = None
         self.fail_alias = False
         self.post_publication_failure: Path | None = None
 
-    def publish(self, path: Path, expected: Image, payload: bytes, mode: int, gid: int) -> Image:
+    def publish(self, path: Path, expected: Image, payload: bytes, mode: int, gid: int,
+                mtime_ns: int | None = None) -> Image:
         """Model I/O and concurrent edits; e.g. drift occurs before the production identity guard."""
         if path == self.fail_publication:
             raise OSError(f"fixture write failure at {path}")
         if path == self.drift_publication:
             path.write_bytes(b"concurrent user rules\n")
-        result = super().publish(path, expected, payload, mode, gid)
+        result = super().publish(path, expected, payload, mode, gid, mtime_ns)
         if path == self.post_publication_failure:
             raise OSError(f"fixture post-publish failure at {path}")
         return result
 
-    def create_alias(self, path: Path, text: str) -> Image:
+    def create_alias(self, path: Path, text: str, restored: Image | None = None) -> Image:
         """Fail the second publication; e.g. canonical recovery must not lose existing rules."""
         if self.fail_alias:
             raise OSError(f"fixture alias failure at {path}")
-        return super().create_alias(path, text)
+        return super().create_alias(path, text, restored)
 
 
 class DeniedParentFiles(FaultInstructionFiles):
@@ -86,18 +132,19 @@ class ForeignProfileParentFiles(FaultInstructionFiles):
 class CollidingStageFiles(FaultInstructionFiles):
     """Model a late scratch-name collision without granting cleanup ownership."""
 
-    def _stage_at(self, directory: int, name: str, payload: bytes, mode: int,
-                  gid: int) -> os.stat_result:
-        super()._stage_at(directory, name, b"concurrent temporary content", mode, gid)
-        return super()._stage_at(directory, name, payload, mode, gid)
+    def _stage_at(self, directory: int, name: str, payload: bytes, mode: int, gid: int,
+                  mtime_ns: int | None) -> os.stat_result:
+        super()._stage_at(directory, name, b"concurrent temporary content", mode, gid, mtime_ns)
+        return super()._stage_at(directory, name, payload, mode, gid, mtime_ns)
 
 
 class SuidClearingFiles(FaultInstructionFiles):
     """Model a kernel that accepts fchmod yet drops setuid/setgid (MIR-696 P2)."""
 
-    def _set_staged_metadata(self, descriptor: int, mode: int, gid: int) -> None:
+    def _set_staged_metadata(self, descriptor: int, mode: int, gid: int,
+                             mtime_ns: int | None) -> None:
         """Strip the special bits after the real call; e.g. 0o2664 lands as 0o664."""
-        super()._set_staged_metadata(descriptor, mode, gid)
+        super()._set_staged_metadata(descriptor, mode, gid, mtime_ns)
         os.fchmod(descriptor, mode & 0o777)
 
 
@@ -111,10 +158,7 @@ class LateEditFiles(FaultInstructionFiles):
 
     def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
         if path == self.target:
-            descriptor = os.open(path.name, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW,
-                                 dir_fd=directory)
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(LATE_EDIT)
+            save_in_place(directory, path.name)
         super()._publish_at(directory, temporary, path, expected)
 
 
@@ -128,16 +172,115 @@ class RenameOverFiles(FaultInstructionFiles):
 
     def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
         if path == self.target:
-            descriptor = os.open("editor-save.tmp", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-                                 0o600, dir_fd=directory)
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(EDITOR_SAVE)
-            os.replace("editor-save.tmp", path.name, src_dir_fd=directory, dst_dir_fd=directory)
+            save_by_rename_over(directory, path.name)
         super()._publish_at(directory, temporary, path, expected)
 
 
+class SaveBeforeMove:
+    """Stand in for the no-replace move: a save lands right before the entry is moved aside."""
+
+    def __init__(self, target: Path, save: LateSave, recreate: bool = False) -> None:
+        """Bind the entry and the save; e.g. recreate=True also re-creates the name before the return."""
+        self.target = target
+        self.save = save
+        self.recreate = recreate
+        self.saved = False
+
+    def __call__(self, directory_fd: int, source: str, moved_to: str) -> None:
+        """Move for real; e.g. the first move of the target is preceded by the save."""
+        ours = same_directory(directory_fd, self.target.parent)
+        if ours and source == self.target.name and not self.saved:
+            self.save_now(directory_fd)
+        elif ours and moved_to == self.target.name and self.saved and self.recreate:
+            Path(self.target).write_bytes(RECREATED)
+        move_without_replace(directory_fd, source, moved_to)
+
+    def save_now(self, directory_fd: int) -> None:
+        """Save once; e.g. either hook of SaveBeforeRemoveFiles may fire it, never both."""
+        self.saved = True
+        self.save(directory_fd, self.target.name)
+
+
+class SaveBeforeRemoveFiles(FaultInstructionFiles):
+    """Reviewer's MIR-889 P0 reproduction: a save lands after the last look at the name.
+
+    The reviewer's hook is the by-name snapshot inside remove. remove no longer takes one,
+    so the same save is also injected at the latest point left: right before the move aside.
+    """
+
+    def __init__(self, target: Path, save: LateSave = save_in_place,
+                 recreate: bool = False) -> None:
+        """Bind the removed entry; e.g. only the canonical removal is disturbed."""
+        self.late = SaveBeforeMove(target, save, recreate)
+        super().__init__(move=self.late)
+        self.target = target
+        self.removing = False
+
+    def remove(self, path: Path, expected: Image) -> None:
+        """Arm the snapshot hook for the target's removal only; e.g. the alias goes undisturbed."""
+        self.removing = path == self.target
+        try:
+            super().remove(path, expected)
+        finally:
+            self.removing = False
+
+    def _snapshot_at(self, directory: int, name: str, limit: int = 1024 * 1024) -> Image:
+        image = super()._snapshot_at(directory, name, limit)
+        if self.removing and name == self.target.name and not self.late.saved:
+            self.late.save_now(directory)
+        return image
+
+
+class SaveAfterPublishFiles(FaultInstructionFiles):
+    """Reviewer's MIR-889 P1 reproduction: a save lands right after our file takes the name."""
+
+    def __init__(self, target: Path, save: LateSave = save_in_place) -> None:
+        """Bind the published document; e.g. journal publications stay undisturbed."""
+        super().__init__()
+        self.target = target
+        self.save = save
+
+    def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
+        super()._publish_at(directory, temporary, path, expected)
+        if path == self.target:
+            self.save(directory, path.name)
+
+
+class ReplaceAfterAliasFiles(FaultInstructionFiles):
+    """Model the new alias being replaced by the user's own link before it is verified."""
+
+    def __init__(self, target: Path) -> None:
+        """Bind the alias; e.g. the canonical's link into place is left alone."""
+        super().__init__()
+        self.target = target
+
+    def _link_into_place_at(self, directory: int, temporary: str, name: str) -> None:
+        super()._link_into_place_at(directory, temporary, name)
+        if name == self.target.name and same_directory(directory, self.target.parent):
+            replace_with_user_link(directory, name)
+
+
+class SaveAfterRestoreFiles(FaultInstructionFiles):
+    """Model a save that lands right after a rollback restored the document."""
+
+    def __init__(self, target: Path) -> None:
+        """Bind the restored document; e.g. saved_mtime_ns records the save's own mtime."""
+        super().__init__()
+        self.target = target
+        self.saved_mtime_ns = 0
+
+    def publish(self, path: Path, expected: Image, payload: bytes, mode: int, gid: int,
+                mtime_ns: int | None = None) -> Image:
+        """Publish for real, then save; e.g. only the restore, which passes an mtime, is followed."""
+        result = super().publish(path, expected, payload, mode, gid, mtime_ns)
+        if path == self.target and mtime_ns is not None:
+            save_at(path, save_in_place)
+            self.saved_mtime_ns = path.lstat().st_mtime_ns
+        return result
+
+
 class UnsupportedExchange:
-    """Model a kernel or filesystem without rename-exchange."""
+    """Model a kernel or filesystem without rename-exchange or no-replace rename."""
 
     def __call__(self, directory_fd: int, first: str, second: str) -> None:
         """Refuse like renameat2 on an unsupporting filesystem.
@@ -183,6 +326,28 @@ class SecondSaveExchange:
                                  dir_fd=directory_fd)
             with os.fdopen(descriptor, "wb") as stream:
                 stream.write(SECOND_SAVE)
+        exchange(directory_fd, first, second)
+
+
+class SameTickSecondSaveExchange:
+    """Model a second save of the same size in the same clock tick as our staging write."""
+
+    def __init__(self) -> None:
+        """Count swaps to time the injected save.
+
+        Example: the save is injected right before the swap back, call 2.
+        """
+        self.calls = 0
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Swap for real; e.g. before call 2 the name is rewritten keeping size and mtime."""
+        self.calls += 1
+        if self.calls == 2:
+            staged = os.stat(second, dir_fd=directory_fd, follow_symlinks=False)
+            descriptor = os.open(second, os.O_WRONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(b"S" * staged.st_size)
+            os.utime(second, ns=(staged.st_atime_ns, staged.st_mtime_ns), dir_fd=directory_fd)
         exchange(directory_fd, first, second)
 
 
@@ -271,6 +436,13 @@ class InstructionFixture(unittest.TestCase):
         self.alias = self.claude / "rules" / "AGENTS.md"
         self.template = (SKILL_ROOT / "integrations/claude/AGENTS.addendum.md").read_bytes()
         self.files = FaultInstructionFiles()
+
+    def scratch_names(self) -> list[str]:
+        """List leftover staging or conflict entries beside the document.
+
+        Example: [] after a clean refusal, one conflict name after a failed swap back.
+        """
+        return sorted(path.name for path in self.pi.glob(".tmux-agents-*"))
 
     def seed_canonical(self, payload: bytes = b"user safety\n", mode: int = 0o664) -> None:
         """Create a known before-state; e.g. migrated files retain 0664 rather than being tightened."""

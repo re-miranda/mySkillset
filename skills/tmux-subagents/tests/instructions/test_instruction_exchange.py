@@ -11,22 +11,16 @@ from unittest import mock
 from instruction_fixtures import (
     EDITOR_SAVE, LATE_EDIT, SECOND_SAVE, FailingNextSync, FailingSwapBackExchange,
     FaultInstructionFiles, InstructionFixture, LateEditFiles, RenameOverFiles,
-    RenameOverSwapBackExchange, SecondSaveExchange, UnsupportedExchange,
+    RenameOverSwapBackExchange, SameTickSecondSaveExchange, SecondSaveExchange,
+    UnsupportedExchange,
     UnsyncedSwapBackExchange)
-from exchange import exchange
+from exchange import exchange, move_without_replace
 from transaction import apply_plan, rollback_journal
 
 ORIGINAL = b"original user rules\n"
 
 
 class InstructionExchangeTests(InstructionFixture):
-    def scratch_names(self) -> list[str]:
-        """List leftover staging or conflict entries beside the document.
-
-        Example: [] after a clean refusal, one conflict name after a failed swap back.
-        """
-        return sorted(path.name for path in self.pi.glob(".tmux-agents-*"))
-
     def assert_apply_refuses_keeping(self, saved: bytes) -> None:
         """Share the late-save assertions; e.g. the user's bytes, not ours, end up canonical."""
         with self.assertRaisesRegex(ValueError, "partial instruction publication.*displaced"):
@@ -133,6 +127,19 @@ class InstructionExchangeTests(InstructionFixture):
             late.publish(self.canonical, before, self.template, before.mode, before.gid)
         self.assert_second_save_stranded_and_named(str(raised.exception))
 
+    def test_same_size_same_tick_save_into_staged_file_survives_cleanup(self) -> None:
+        """Cleanup compares bytes, so a save that keeps our size and mtime is still kept."""
+        self.seed_canonical(ORIGINAL)
+        before = self.files.snapshot(self.canonical)
+        late = LateEditFiles(self.canonical, SameTickSecondSaveExchange())
+        with self.assertRaises(ValueError) as raised:
+            late.publish(self.canonical, before, self.template, before.mode, before.gid)
+        names = self.scratch_names()
+        self.assertEqual(len(names), 1)
+        self.assertEqual((self.pi / names[0]).read_bytes(), b"S" * len(self.template))
+        self.assertIn(repr(str(self.pi / names[0])), str(raised.exception))
+        self.assertEqual(self.canonical.read_bytes(), LATE_EDIT)
+
     def test_failed_sync_after_swap_back_reports_canonical_not_conflict(self) -> None:
         """A sync failure after a good swap back must not relabel our staged file as the user's."""
         self.seed_canonical(ORIGINAL)
@@ -193,3 +200,27 @@ class KernelExchangeTests(InstructionFixture):
             exchange(descriptor, "left", "right", platform="darwin")
         self.assertEqual(missing.exception.errno, errno.ENOSYS)
         self.assertEqual((left.read_bytes(), right.read_bytes()), (b"left", b"right"))
+
+    def test_move_without_replace_moves_to_an_unused_name(self) -> None:
+        """The no-replace rename moves the same inode to a free name."""
+        descriptor, left, _ = self.swap_fixture()
+        inode = left.lstat().st_ino
+        move_without_replace(descriptor, "left", "aside")
+        self.assertFalse(left.exists())
+        self.assertEqual(((self.root / "aside").read_bytes(), (self.root / "aside").lstat().st_ino),
+                         (b"left", inode))
+
+    def test_move_without_replace_refuses_an_occupied_name(self) -> None:
+        """An existing target raises EEXIST and both entries stay as they were."""
+        descriptor, left, right = self.swap_fixture()
+        with self.assertRaisesRegex(FileExistsError, r"names=\('left', 'right'\)"):
+            move_without_replace(descriptor, "left", "right")
+        self.assertEqual((left.read_bytes(), right.read_bytes()), (b"left", b"right"))
+
+    def test_move_without_replace_is_unsupported_on_unknown_platforms(self) -> None:
+        """A platform without a known no-replace rename fails with ENOTSUP and moves nothing."""
+        descriptor, left, _ = self.swap_fixture()
+        with self.assertRaisesRegex(OSError, "platform='plan9'") as unknown:
+            move_without_replace(descriptor, "left", "aside", platform="plan9")
+        self.assertEqual(unknown.exception.errno, errno.ENOTSUP)
+        self.assertEqual(left.read_bytes(), b"left")
