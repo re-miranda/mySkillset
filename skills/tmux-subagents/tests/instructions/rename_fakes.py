@@ -25,4 +25,3 @@ class BrokenRename:
         Example: any pair of names raises EIO and nothing is renamed.
         """
         raise OSError(errno.EIO, f"fixture: rename failed for {(first, second)!r}")
-
