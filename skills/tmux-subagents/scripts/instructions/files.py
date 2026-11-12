@@ -217,8 +217,7 @@ class InstructionFiles:
             self._require_displaced_at(directory, temporary, expected)
         except (OSError, ValueError) as conflict:
             kept = self._return_displaced_at(directory, temporary, path)
-            raise ValueError(f"entry={str(path)!r}; {conflict}; concurrent version preserved at "
-                             f"{str(kept)!r}, nothing published"
+            raise ValueError(f"entry={str(path)!r}; {conflict}; {swap_refusal_outcome(path, kept)}"
                              f"{self._unsynced_note_at(directory)}") from conflict
         # Safe to drop: its bytes equal the recorded before-state held in recovery.
         os.unlink(temporary, dir_fd=directory)
@@ -324,13 +323,32 @@ def stable_stat(info: os.stat_result) -> tuple[int, ...]:
             info.st_size, info.st_mtime_ns, info.st_ctime_ns)
 
 
+def swap_refusal_outcome(path: Path, kept: Path) -> str:
+    """Say where each version ended up after a refused swap (MIR-888).
+
+    Example: kept == path reads "... preserved at '/p/AGENTS.md', nothing published"; a
+    failed swap back instead names the new payload at path and the conflict entry.
+    """
+    if kept == path:
+        return f"concurrent version preserved at {str(kept)!r}, nothing published"
+    # The swap back failed, so claiming "nothing published" would be false here.
+    return (f"swap back failed, so the canonical name {str(path)!r} holds the new payload; "
+            f"concurrent version preserved at {str(kept)!r}")
+
+
 def staged_identity(info: os.stat_result) -> tuple[int, ...]:
-    """Recognize our untouched scratch file; e.g. renames change ctime, a later write changes mtime."""
+    """Recognize our untouched scratch file.
+
+    Example: renames change ctime and a later write changes mtime, so neither is ours.
+    """
     return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
 
 
 def settled_image(image: Image) -> Image:
-    """Drop ctime, which the swap itself advances; e.g. compare a displaced inode with its preflight."""
+    """Drop ctime, which the swap itself advances.
+
+    Example: compare a displaced inode with its preflight image.
+    """
     return replace(image, identity=image.identity[:3])
 
 

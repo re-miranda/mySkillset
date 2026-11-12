@@ -21,7 +21,10 @@ ORIGINAL = b"original user rules\n"
 
 class InstructionExchangeTests(InstructionFixture):
     def scratch_names(self) -> list[str]:
-        """List leftover staging or conflict entries; e.g. [] after a clean refusal."""
+        """List leftover staging or conflict entries beside the document.
+
+        Example: [] after a clean refusal, one conflict name after a failed swap back.
+        """
         return sorted(path.name for path in self.pi.glob(".tmux-agents-*"))
 
     def assert_apply_refuses_keeping(self, saved: bytes) -> None:
@@ -87,6 +90,11 @@ class InstructionExchangeTests(InstructionFixture):
         self.assertTrue(names[0].startswith(".tmux-agents-conflict-"))
         self.assertIn(repr(str(self.pi / names[0])), str(raised.exception))
         self.assertEqual((self.pi / names[0]).read_bytes(), LATE_EDIT)
+        # MIR-888: the installer's payload is at the canonical name, so the error must say so.
+        self.assertEqual(self.canonical.read_bytes(), self.template)
+        self.assertIn(f"canonical name {str(self.canonical)!r} holds the new payload",
+                      str(raised.exception))
+        self.assertNotIn("nothing published", str(raised.exception))
 
     def test_rollback_refuses_late_edit_and_keeps_user_bytes(self) -> None:
         """The same late save during rollback blocks the restore instead of being lost."""

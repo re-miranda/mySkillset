@@ -10,7 +10,7 @@ from pathlib import Path
 
 from files import InstructionFiles
 from planning import check_writable_targets, inspect_legacy, validate_destinations
-from records import Image, Plan, mapping, string
+from records import Image, Parent, Plan, mapping, string
 
 
 def read_document(path: Path, files: InstructionFiles) -> dict[str, object]:
@@ -162,11 +162,17 @@ def admit_restore(path: Path, before: Image, after: Image, recovery: Path,
 def verify_recovery_parents(plan: Plan, files: InstructionFiles) -> None:
     """Preserve replaced directories; e.g. allow only absent previously-created parents on repeat rollback."""
     for parent in plan.parents:
-        try:
-            files.verify_parents((parent,))
-        except FileNotFoundError:
-            if parent.path not in plan.missing:
-                raise
+        verify_recovery_parent(parent, plan.missing, files)
+
+
+def verify_recovery_parent(parent: Parent, created: tuple[Path, ...],
+                           files: InstructionFiles) -> None:
+    """Tolerate an absent parent only if the plan created it; e.g. a repeat rollback removed it."""
+    try:
+        files.verify_parents((parent,))
+    except FileNotFoundError:
+        if parent.path not in created:
+            raise
 
 
 def restore_entry(path: Path, before: Image, after: Image, recovery: Path,
@@ -203,13 +209,19 @@ def remove_created_directories(plan: Plan, files: InstructionFiles) -> None:
     """Keep evidence and concurrent additions; e.g. remove an empty newly-created rules directory only."""
     parents = {parent.path: parent for parent in plan.parents}
     for directory in reversed(plan.missing):
-        try:
-            files.remove_directory(directory, parents.get(directory))
-        except FileNotFoundError:
-            continue
-        except OSError as failure:
-            if failure.errno not in {errno.ENOTEMPTY, errno.EEXIST}:
-                raise
+        remove_created_directory(directory, parents.get(directory), files)
+
+
+def remove_created_directory(directory: Path, recorded: Parent | None,
+                             files: InstructionFiles) -> None:
+    """Leave a gone or still-populated directory alone; e.g. a user file added since install."""
+    try:
+        files.remove_directory(directory, recorded)
+    except FileNotFoundError:
+        return
+    except OSError as failure:
+        if failure.errno not in {errno.ENOTEMPTY, errno.EEXIST}:
+            raise
 
 
 def rollback_journal(journal: Path, files: InstructionFiles) -> None:

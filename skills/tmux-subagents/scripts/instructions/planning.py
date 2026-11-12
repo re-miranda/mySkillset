@@ -53,7 +53,10 @@ def bounded_replacement(payload: bytes, template: bytes) -> bytes:
 
 
 def describe_template(template: bytes) -> str:
-    """Show the offending bytes; e.g. a 3-byte b'abc' template reports length=3 head=b'abc'."""
+    """Show the offending bytes without dumping a whole document.
+
+    Example: a 3-byte b'abc' template reports length=3 head=b'abc' tail=b'abc'.
+    """
     return f"length={len(template)} head={template[:80]!r} tail={template[-80:]!r}"
 
 

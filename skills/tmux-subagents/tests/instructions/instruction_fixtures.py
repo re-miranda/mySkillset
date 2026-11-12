@@ -96,6 +96,7 @@ class SuidClearingFiles(FaultInstructionFiles):
     """Model a kernel that accepts fchmod yet drops setuid/setgid (MIR-696 P2)."""
 
     def _set_staged_metadata(self, descriptor: int, mode: int, gid: int) -> None:
+        """Strip the special bits after the real call; e.g. 0o2664 lands as 0o664."""
         super()._set_staged_metadata(descriptor, mode, gid)
         os.fchmod(descriptor, mode & 0o777)
 
@@ -139,7 +140,10 @@ class UnsupportedExchange:
     """Model a kernel or filesystem without rename-exchange."""
 
     def __call__(self, directory_fd: int, first: str, second: str) -> None:
-        """Refuse like renameat2 on an unsupporting filesystem; e.g. EINVAL."""
+        """Refuse like renameat2 on an unsupporting filesystem.
+
+        Example: any pair of names raises EINVAL and nothing is renamed.
+        """
         raise OSError(errno.EINVAL, f"fixture: no exchange for {(first, second)!r}")
 
 
@@ -147,7 +151,10 @@ class FailingSwapBackExchange:
     """Let the first swap through, then fail every later one."""
 
     def __init__(self) -> None:
-        """Count swaps; e.g. call 1 publishes, call 2 is the swap back."""
+        """Count swaps so only the first succeeds.
+
+        Example: call 1 publishes, call 2 is the swap back.
+        """
         self.calls = 0
 
     def __call__(self, directory_fd: int, first: str, second: str) -> None:
@@ -162,7 +169,10 @@ class SecondSaveExchange:
     """Model a second in-place save that lands while our staged file holds the name."""
 
     def __init__(self) -> None:
-        """Count swaps; e.g. the save is injected right before the swap back."""
+        """Count swaps to time the injected save.
+
+        Example: the save is injected right before the swap back, call 2.
+        """
         self.calls = 0
 
     def __call__(self, directory_fd: int, first: str, second: str) -> None:
@@ -180,7 +190,10 @@ class RenameOverSwapBackExchange:
     """Model a second save by editor rename-over while our staged file holds the name."""
 
     def __init__(self) -> None:
-        """Count swaps; e.g. the new file replaces the name right before the swap back."""
+        """Count swaps to time the injected rename-over.
+
+        Example: the new file replaces the name right before the swap back, call 2.
+        """
         self.calls = 0
 
     def __call__(self, directory_fd: int, first: str, second: str) -> None:
@@ -200,7 +213,10 @@ class FailingNextSync:
     """Stand in for os.fsync: fail once when armed, otherwise sync for real (MIR-887)."""
 
     def __init__(self) -> None:
-        """Start disarmed; e.g. staging syncs pass until the swap back arms the fault."""
+        """Start disarmed so earlier syncs are real.
+
+        Example: staging syncs pass until the swap back arms the fault.
+        """
         self.armed = False
 
     def __call__(self, descriptor: int) -> None:

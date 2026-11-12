@@ -1,13 +1,17 @@
 """Atomic publication, conditional rollback and recoverable partial failures."""
 from __future__ import annotations
 
+import errno
 import os
 from dataclasses import replace
 from pathlib import Path
 
 from instruction_fixtures import CollidingStageFiles, InstructionFixture, tree_signature
+from files import swap_refusal_outcome
 from records import Image, Plan
-from transaction import apply_plan, read_document, rollback_journal, rollback_record, write_document
+from transaction import (
+    apply_plan, read_document, remove_created_directory, rollback_journal, rollback_record,
+    verify_recovery_parent, write_document)
 
 
 class InstructionTransactionTests(InstructionFixture):
@@ -218,3 +222,42 @@ class InstructionTransactionTests(InstructionFixture):
         journal.chmod(0o644)
         with self.assertRaisesRegex(ValueError, "expected owned private regular JSON"):
             read_document(journal, self.files)
+
+    def test_recovery_parent_may_be_absent_only_when_the_plan_created_it(self) -> None:
+        """An absent parent passes if the plan created it and raises otherwise (MIR-888)."""
+        self.pi.mkdir(mode=0o700)
+        recorded = self.files.parent(self.pi)
+        verify_recovery_parent(recorded, (), self.files)
+        self.pi.rmdir()
+        verify_recovery_parent(recorded, (self.pi,), self.files)
+        with self.assertRaises(FileNotFoundError):
+            verify_recovery_parent(recorded, (), self.files)
+
+    def test_created_directory_removal_keeps_populated_and_tolerates_absent(self) -> None:
+        """Only an empty recorded directory goes; other errors still surface (MIR-888)."""
+        self.pi.mkdir(mode=0o700)
+        recorded = self.files.parent(self.pi)
+        (self.pi / "user file").write_bytes(b"added since install\n")
+        remove_created_directory(self.pi, recorded, self.files)
+        self.assertTrue((self.pi / "user file").exists())
+        (self.pi / "user file").unlink()
+        self.root.chmod(0o500)
+        self.addCleanup(self.root.chmod, 0o700)
+        with self.assertRaises(PermissionError) as denied:
+            remove_created_directory(self.pi, recorded, self.files)
+        self.assertEqual(denied.exception.errno, errno.EACCES)
+        self.root.chmod(0o700)
+        remove_created_directory(self.pi, recorded, self.files)
+        self.assertFalse(self.pi.exists())
+        remove_created_directory(self.pi, None, self.files)
+
+    def test_swap_refusal_outcome_claims_nothing_published_only_when_returned(self) -> None:
+        """The wording follows where the user's version actually is (MIR-888)."""
+        conflict = self.canonical.with_name(".tmux-agents-conflict-0a")
+        returned = swap_refusal_outcome(self.canonical, self.canonical)
+        self.assertEqual(
+            returned, f"concurrent version preserved at {str(self.canonical)!r}, nothing published")
+        stranded = swap_refusal_outcome(self.canonical, conflict)
+        self.assertNotIn("nothing published", stranded)
+        self.assertIn(f"canonical name {str(self.canonical)!r} holds the new payload", stranded)
+        self.assertIn(f"preserved at {str(conflict)!r}", stranded)
