@@ -421,6 +421,21 @@ def tree_signature(root: Path) -> dict[str, tuple[object, ...]]:
     return result
 
 
+def signature_without_directory_mtimes(root: Path) -> dict[str, tuple[object, ...]]:
+    """Compare a tree across a refused run; e.g. equal before and after means no trace.
+
+    MIR-892: the one stated exception to `tree_signature` is the mtime of a directory,
+    which truthfully shows that the run created and removed entries in it. Existence,
+    type, mode, owner, inode and content of every entry, and the mtime of every file
+    and link, still count.
+    """
+    result = tree_signature(root)
+    for name, entry in result.items():
+        if stat.S_ISDIR((root / name).lstat().st_mode):
+            result[name] = (*entry[:4], None, entry[5])
+    return result
+
+
 class InstructionFixture(unittest.TestCase):
     """Provide isolated homes and actual filesystem assertions; e.g. never default to real HOME."""
 

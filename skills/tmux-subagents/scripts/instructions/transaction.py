@@ -75,7 +75,6 @@ def open_recovery(plan: Plan, files: InstructionFiles) -> tuple[Plan, Path]:
     """
     root = plan.canonical.parent / "backups" / "tmux-subagents" / "instructions"
     recovery = root / f"{time.time_ns()}-{secrets.token_hex(8)}"
-    mtimes = surviving_parent_mtimes(plan.missing, files)
     for directory in plan.missing:
         files.make_directory(directory)
     plan = replace(plan, parents=plan.parents + tuple(files.parent(path) for path in plan.missing))
@@ -83,27 +82,20 @@ def open_recovery(plan: Plan, files: InstructionFiles) -> tuple[Plan, Path]:
     try:
         prove_renames(files, recovery)
     except (OSError, ValueError) as refusal:
-        withdraw_created(plan, recovery, mtimes, files)
+        withdraw_created(plan, recovery, files)
         raise ValueError(unproven_renames_refusal(plan, refusal)) from refusal
     return plan, recovery
 
 
-def surviving_parent_mtimes(missing: tuple[Path, ...], files: InstructionFiles) -> dict[Path, int]:
-    """Record mtimes that creating `missing` will change; e.g. {home: ns} when home/pi is new."""
-    surviving = {directory.parent for directory in missing} - set(missing)
-    return {directory: files.directory_mtime(directory) for directory in sorted(surviving)}
-
-
-def withdraw_created(plan: Plan, recovery: Path, mtimes: dict[Path, int],
-                     files: InstructionFiles) -> None:
-    """Undo a run refused before its first write; e.g. the tree is as it was before apply.
+def withdraw_created(plan: Plan, recovery: Path, files: InstructionFiles) -> None:
+    """Undo a run refused before its first write; e.g. no entry it created remains after apply.
 
     A created directory that gained a concurrent entry is kept, as in rollback.
+    MIR-892: the surviving parent keeps its new mtime. Writing back a value read before
+    the probe would erase a concurrent change by anyone else in that directory.
     """
     remove_created_directory(recovery, files.parent(recovery), files)
     remove_created_directories(plan, files)
-    for directory, mtime_ns in mtimes.items():
-        files.restore_directory_mtime(directory, mtime_ns)
 
 
 def unproven_renames_refusal(plan: Plan, refusal: Exception) -> str:

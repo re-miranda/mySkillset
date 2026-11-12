@@ -1,4 +1,4 @@
-"""Named rename and clock fakes for the pre-write rename proof (MIR-891)."""
+"""Named rename fakes for the pre-write rename proof (MIR-891)."""
 from __future__ import annotations
 
 import errno
@@ -26,14 +26,3 @@ class BrokenRename:
         """
         raise OSError(errno.EIO, f"fixture: rename failed for {(first, second)!r}")
 
-
-class DeniedUtime:
-    """Stand in for os.utime on a directory the caller does not own, such as sticky /tmp."""
-
-    def __call__(self, descriptor: int, ns: tuple[int, int]) -> None:
-        """Refuse like the kernel.
-
-        Example: any timestamp pair raises EPERM.
-        """
-        raise PermissionError(errno.EPERM,
-                              f"fixture: utime denied for descriptor={descriptor} ns={ns!r}")

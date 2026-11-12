@@ -12,7 +12,7 @@ from instruction_fixtures import (
     EDITOR_SAVE, LATE_EDIT, SECOND_SAVE, FailingNextSync, FailingSwapBackExchange,
     FaultInstructionFiles, InstructionFixture, LateEditFiles, RenameOverFiles,
     RenameOverSwapBackExchange, SameTickSecondSaveExchange, SecondSaveExchange,
-    UnsupportedExchange, UnsyncedSwapBackExchange, tree_signature)
+    UnsupportedExchange, UnsyncedSwapBackExchange, signature_without_directory_mtimes)
 from exchange import exchange, move_without_replace
 from transaction import apply_plan, rollback_journal
 
@@ -65,11 +65,11 @@ class InstructionExchangeTests(InstructionFixture):
             self.files.publish(self.canonical, plan.before, self.template, 0o664, plan.before.gid)
         self.assertEqual(self.scratch_names(), [])
         # MIR-891: apply now finds out on scratch entries, so no journal or directory remains.
-        before = tree_signature(self.root)
+        before = signature_without_directory_mtimes(self.root)
         with self.assertRaisesRegex(ValueError, "expected atomic rename-exchange support.*"
                                                 "before the first document write"):
             apply_plan(plan, self.files)
-        self.assertEqual(before, tree_signature(self.root))
+        self.assertEqual(before, signature_without_directory_mtimes(self.root))
         self.assertEqual(self.canonical.read_bytes(), ORIGINAL)
         self.assertEqual(list(self.root.rglob("journal.json")), [])
 

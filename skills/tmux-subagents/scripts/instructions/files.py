@@ -117,21 +117,6 @@ class InstructionFiles:
         writable = os.access(path, os.W_OK | os.X_OK)
         return writable
 
-    def directory_mtime(self, path: Path) -> int:
-        """Read a directory's mtime without following links; e.g. before creating a child in it."""
-        with self.directory(path) as descriptor:
-            return os.fstat(descriptor).st_mtime_ns
-
-    def restore_directory_mtime(self, path: Path, mtime_ns: int) -> None:
-        """Put back a directory's mtime; e.g. restore_directory_mtime(home, 1700000000000000000).
-
-        MIR-891: a refused run removes the directories it created, which still leaves the
-        surviving parent with a new mtime. A system parent we do not own (sticky /tmp)
-        cannot be reset and keeps the new one.
-        """
-        with self.directory(path) as descriptor, contextlib.suppress(PermissionError):
-            os.utime(descriptor, ns=(os.fstat(descriptor).st_atime_ns, mtime_ns))
-
     def make_directory(self, path: Path) -> None:
         """Create only a planned private directory; e.g. native rules or recovery."""
         with self.directory(path.parent) as descriptor:

@@ -4,18 +4,16 @@ from __future__ import annotations
 import errno
 import os
 from pathlib import Path
-from unittest import mock
 
 # instruction_fixtures puts the reviewed source directory on sys.path; import it first.
 from instruction_fixtures import (
-    FaultInstructionFiles, InstructionFixture, UnsupportedExchange, tree_signature)
-from rename_fakes import BrokenRename, DeniedUtime, FlagIgnoringRename
+    FaultInstructionFiles, InstructionFixture, UnsupportedExchange,
+    signature_without_directory_mtimes)
+from rename_fakes import BrokenRename, FlagIgnoringRename
 from exchange import exchange, move_without_replace
 from refusals import refuse_unsupported_rename
 from rename_probe import ABSENT_INODE, probe_inode, prove_renames
-from transaction import apply_plan, surviving_parent_mtimes, unproven_renames_refusal
-
-OLD_MTIME_NS = 1_500_000_000_000_000_000
+from transaction import apply_plan, unproven_renames_refusal
 
 
 class RenameProbeTests(InstructionFixture):
@@ -68,10 +66,10 @@ class RenameProbeTests(InstructionFixture):
             prove_renames(broken, private)
         self.assertEqual(raised.exception.errno, errno.EIO)
         self.assertEqual(list(private.iterdir()), [])
-        plan, before = self.plan(), tree_signature(self.root)
+        plan, before = self.plan(), signature_without_directory_mtimes(self.root)
         with self.assertRaisesRegex(ValueError, "fixture: rename failed.*were not written"):
             apply_plan(plan, broken)
-        self.assertEqual(before, tree_signature(self.root))
+        self.assertEqual(before, signature_without_directory_mtimes(self.root))
 
     def test_probe_inode_reports_an_absent_name(self) -> None:
         """A missing scratch name reads as the absent marker instead of raising."""
@@ -89,29 +87,6 @@ class RenameProofHelperTests(InstructionFixture):
             refuse_unsupported_rename(OSError(errno.EINVAL, "flags rejected"), entry, 7,
                                       "swap support")
         refuse_unsupported_rename(OSError(errno.EIO, "bad disk"), entry, 7, "swap support")
-
-    def test_directory_mtime_is_read_and_restored(self) -> None:
-        """The recorded mtime goes back on the directory through its descriptor."""
-        os.utime(self.root, ns=(OLD_MTIME_NS, OLD_MTIME_NS))
-        recorded = self.files.directory_mtime(self.root)
-        (self.root / "child").mkdir()
-        (self.root / "child").rmdir()
-        self.assertNotEqual(self.root.stat().st_mtime_ns, OLD_MTIME_NS)
-        self.files.restore_directory_mtime(self.root, recorded)
-        self.assertEqual((recorded, self.root.stat().st_mtime_ns), (OLD_MTIME_NS, OLD_MTIME_NS))
-
-    def test_unowned_parent_mtime_is_left_alone_without_failing(self) -> None:
-        """A parent we may not stamp (sticky /tmp) does not turn the refusal into a crash."""
-        current = self.root.stat().st_mtime_ns
-        with mock.patch("os.utime", DeniedUtime()):
-            self.files.restore_directory_mtime(self.root, OLD_MTIME_NS)
-        self.assertEqual(self.root.stat().st_mtime_ns, current)
-
-    def test_surviving_parent_mtimes_cover_only_directories_that_exist(self) -> None:
-        """Only the existing parent of the topmost created directory is recorded."""
-        missing = (self.pi, self.pi / "backups")
-        recorded = surviving_parent_mtimes(missing, self.files)
-        self.assertEqual(recorded, {self.root: self.root.stat().st_mtime_ns})
 
     def test_unproven_renames_refusal_leads_with_the_cause(self) -> None:
         """The wording keeps the kernel's answer first and names both untouched documents."""
