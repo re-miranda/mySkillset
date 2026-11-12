@@ -91,6 +91,14 @@ class CollidingStageFiles(FaultInstructionFiles):
         return super()._stage_at(directory, name, payload, mode, gid)
 
 
+class SuidClearingFiles(FaultInstructionFiles):
+    """Model a kernel that accepts fchmod yet drops setuid/setgid (MIR-696 P2)."""
+
+    def _set_staged_metadata(self, descriptor: int, mode: int, gid: int) -> None:
+        super()._set_staged_metadata(descriptor, mode, gid)
+        os.fchmod(descriptor, mode & 0o777)
+
+
 class LateEditFiles(FaultInstructionFiles):
     """Reviewer's MIR-696 P0 reproduction: an in-place save lands after the final check."""
 

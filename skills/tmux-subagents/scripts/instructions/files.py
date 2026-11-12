@@ -150,18 +150,39 @@ class InstructionFiles:
         descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                              0o600, dir_fd=directory)
         try:
-            os.fchown(descriptor, self.uid, gid)
-            os.fchmod(descriptor, mode)
-            with os.fdopen(descriptor, "wb", closefd=False) as stream:
-                stream.write(payload)
-                stream.flush()
-                os.fsync(descriptor)
-            return os.fstat(descriptor)
-        except OSError:
+            self._write_staged(descriptor, payload)
+            self._set_staged_metadata(descriptor, mode, gid)
+            return self._require_staged_metadata(descriptor, name, mode, gid)
+        except (OSError, ValueError):
             self._remove_temporary(directory, name, os.fstat(descriptor))
             raise
         finally:
             os.close(descriptor)
+
+    def _write_staged(self, descriptor: int, payload: bytes) -> None:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(descriptor)
+
+    def _set_staged_metadata(self, descriptor: int, mode: int, gid: int) -> None:
+        # Order is load-bearing (MIR-696 P2): an unprivileged write and any chown both
+        # clear setuid/setgid on Linux, so the mode goes on last, after the payload.
+        os.fchown(descriptor, self.uid, gid)
+        os.fchmod(descriptor, mode)
+        os.fsync(descriptor)
+
+    def _require_staged_metadata(self, descriptor: int, name: str, mode: int,
+                                 gid: int) -> os.stat_result:
+        # fchmod can succeed yet drop setgid (group outside the caller's groups), so only
+        # the observed state counts; checked before the swap, nothing is published on refusal.
+        staged = os.fstat(descriptor)
+        observed = (stat.S_IMODE(staged.st_mode), staged.st_uid, staged.st_gid)
+        if observed != (mode, self.uid, gid):
+            raise ValueError(
+                f"staged={name!r} mode={observed[0]:#o} owner={observed[1]}:{observed[2]}; "
+                f"expected {mode:#o} owner={self.uid}:{gid} before publication, nothing published")
+        return staged
 
     def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
         if expected.kind == "regular":
