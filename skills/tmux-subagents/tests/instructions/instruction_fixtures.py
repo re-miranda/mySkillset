@@ -1,6 +1,7 @@
 """Named filesystem fakes; every writable path belongs to a temporary fixture."""
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import stat
@@ -11,17 +12,22 @@ from pathlib import Path
 
 SKILL_ROOT = Path(__file__).absolute().parents[2]
 sys.path.insert(0, str(SKILL_ROOT / "scripts" / "instructions"))
+from exchange import ExchangeNames, exchange
 from files import InstructionFiles
 from planning import build_plan
 from records import Image, Parent, Plan
+
+LATE_EDIT = b"USER EDIT SAVED AFTER FINAL CHECK\n"
+EDITOR_SAVE = b"EDITOR ATOMIC SAVE AFTER FINAL CHECK\n"
+SECOND_SAVE = b"SECOND SAVE DURING SWAP BACK\n"
 
 
 class FaultInstructionFiles(InstructionFiles):
     """Inject explicit fixture publication failures, never a production environment bypass."""
 
-    def __init__(self) -> None:
+    def __init__(self, swap: ExchangeNames = exchange) -> None:
         """Use the local fixture owner; e.g. no privileged chown-based tests."""
-        super().__init__(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid())
+        super().__init__(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid(), swap)
         self.fail_publication: Path | None = None
         self.drift_publication: Path | None = None
         self.fail_alias = False
@@ -83,6 +89,82 @@ class CollidingStageFiles(FaultInstructionFiles):
                   gid: int) -> os.stat_result:
         super()._stage_at(directory, name, b"concurrent temporary content", mode, gid)
         return super()._stage_at(directory, name, payload, mode, gid)
+
+
+class LateEditFiles(FaultInstructionFiles):
+    """Reviewer's MIR-696 P0 reproduction: an in-place save lands after the final check."""
+
+    def __init__(self, target: Path, swap: ExchangeNames = exchange) -> None:
+        """Bind the edited document; e.g. journal publications stay undisturbed."""
+        super().__init__(swap)
+        self.target = target
+
+    def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
+        if path == self.target:
+            descriptor = os.open(path.name, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW,
+                                 dir_fd=directory)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(LATE_EDIT)
+        super()._publish_at(directory, temporary, path, expected)
+
+
+class RenameOverFiles(FaultInstructionFiles):
+    """Model an editor's atomic save: a new file renamed over the name after the final check."""
+
+    def __init__(self, target: Path) -> None:
+        """Bind the saved document; e.g. only the canonical AGENTS is replaced."""
+        super().__init__()
+        self.target = target
+
+    def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
+        if path == self.target:
+            descriptor = os.open("editor-save.tmp", os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                 0o600, dir_fd=directory)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(EDITOR_SAVE)
+            os.replace("editor-save.tmp", path.name, src_dir_fd=directory, dst_dir_fd=directory)
+        super()._publish_at(directory, temporary, path, expected)
+
+
+class UnsupportedExchange:
+    """Model a kernel or filesystem without rename-exchange."""
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Refuse like renameat2 on an unsupporting filesystem; e.g. EINVAL."""
+        raise OSError(errno.EINVAL, f"fixture: no exchange for {(first, second)!r}")
+
+
+class FailingSwapBackExchange:
+    """Let the first swap through, then fail every later one."""
+
+    def __init__(self) -> None:
+        """Count swaps; e.g. call 1 publishes, call 2 is the swap back."""
+        self.calls = 0
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Swap once for real; e.g. the swap back then raises EIO."""
+        self.calls += 1
+        if self.calls > 1:
+            raise OSError(errno.EIO, f"fixture: swap back failed for {(first, second)!r}")
+        exchange(directory_fd, first, second)
+
+
+class SecondSaveExchange:
+    """Model a second in-place save that lands while our staged file holds the name."""
+
+    def __init__(self) -> None:
+        """Count swaps; e.g. the save is injected right before the swap back."""
+        self.calls = 0
+
+    def __call__(self, directory_fd: int, first: str, second: str) -> None:
+        """Swap for real; e.g. before call 2 the destination name is rewritten in place."""
+        self.calls += 1
+        if self.calls == 2:
+            descriptor = os.open(second, os.O_WRONLY | os.O_TRUNC | os.O_NOFOLLOW,
+                                 dir_fd=directory_fd)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(SECOND_SAVE)
+        exchange(directory_fd, first, second)
 
 
 def tree_signature(root: Path) -> dict[str, tuple[object, ...]]:

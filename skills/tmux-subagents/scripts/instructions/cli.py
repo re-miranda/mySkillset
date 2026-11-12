@@ -8,6 +8,7 @@ from pathlib import Path
 
 # -I excludes ambient Python paths; import only this reviewed source directory.
 sys.path.insert(0, str(Path(__file__).absolute().parent))
+from exchange import exchange
 from files import InstructionFiles
 from planning import build_plan
 from records import Plan
@@ -52,7 +53,8 @@ def main() -> int:
             raise ValueError(f"platform={os.name!r}; expected the supported POSIX native map")
         if sys.version_info < (3, 10):
             raise ValueError(f"Python={sys.version_info[:3]!r}; expected Python 3.10+")
-        files = InstructionFiles(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid())
+        files = InstructionFiles(os.getuid(), set(os.getgroups()) | {os.getgid()}, os.getgid(),
+                                 exchange)
         execute(argument_parser().parse_args(), files)
         return 0
     except (OSError, ValueError) as failure:

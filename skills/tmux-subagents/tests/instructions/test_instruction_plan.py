@@ -7,6 +7,7 @@ from pathlib import Path
 from instruction_fixtures import (
     DeniedParentFiles, ForeignProfileParentFiles, InstructionFixture, tree_signature,
 )
+from exchange import exchange
 from files import InstructionFiles
 from planning import BEGIN, END, OLD_BEGIN, OLD_END, owned_span, replacement, validate_template
 from records import Image, Plan, integer, mapping, string
@@ -114,7 +115,7 @@ class InstructionPlanTests(InstructionFixture):
 
     def test_foreign_document_owner_is_rejected_by_io_boundary(self) -> None:
         self.seed_canonical()
-        foreign_actor = InstructionFiles(os.getuid() + 1, {os.getgid()}, os.getgid())
+        foreign_actor = InstructionFiles(os.getuid() + 1, {os.getgid()}, os.getgid(), exchange)
         before = tree_signature(self.root)
         with self.assertRaisesRegex(ValueError, "owned single-link"):
             foreign_actor.snapshot(self.canonical)

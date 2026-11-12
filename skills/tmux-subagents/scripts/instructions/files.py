@@ -2,23 +2,33 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import secrets
 import stat
+import sys
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
+from exchange import ExchangeNames
 from records import Image, Parent
+
+PUBLISH_LIMIT = 16 * 1024 * 1024
+# A filesystem or kernel without rename-exchange reports one of these; we then refuse.
+EXCHANGE_UNSUPPORTED = frozenset({errno.ENOSYS, errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP})
 
 
 class InstructionFiles:
     """Own narrow document I/O; e.g. never inspect a client's settings/auth directory."""
 
-    def __init__(self, uid: int, groups: set[int], primary_gid: int) -> None:
-        """Inject execution identity; e.g. fixtures use their actual unprivileged owner."""
+    def __init__(self, uid: int, groups: set[int], primary_gid: int,
+                 exchange: ExchangeNames) -> None:
+        """Inject identity and the atomic swap; e.g. fixtures pass their owner and a fault fake."""
         self.uid = uid
         self.groups = groups
         self.primary_gid = primary_gid
+        self.exchange = exchange
         required = ("O_NOFOLLOW", "O_DIRECTORY", "listxattr")
         if os.name != "posix" or not all(hasattr(os, name) for name in required):
             raise ValueError(f"platform={os.name!r}; expected POSIX no-follow and metadata support")
@@ -117,19 +127,24 @@ class InstructionFiles:
             raise ValueError(f"parent={str(path)!r}; expected newly created owned directory")
 
     def publish(self, path: Path, expected: Image, payload: bytes, mode: int, gid: int) -> Image:
-        """Replace directly on the destination filesystem; e.g. never open the native alias for writes."""
+        """Publish without destroying a concurrent save; e.g. never open the native alias for writes."""
         with self.directory(path.parent) as directory:
+            # Early refusal only; the binding check is on the displaced entry after the swap.
+            self._require_image_at(directory, path, expected)
             temporary = ".tmux-agents-" + secrets.token_hex(12)
-            staged: os.stat_result | None = None
+            staged = self._stage_at(directory, temporary, payload, mode, gid)
             try:
-                staged = self._stage_at(directory, temporary, payload, mode, gid)
-                if self._snapshot_at(directory, path.name, 16 * 1024 * 1024) != expected:
-                    raise ValueError(f"entry={str(path)!r}; expected unchanged preflight image")
-                self._publish_at(directory, temporary, path.name, expected.kind)
+                self._publish_at(directory, temporary, path, expected)
                 os.fsync(directory)
-                return self._snapshot_at(directory, path.name, 16 * 1024 * 1024)
+                return self._snapshot_at(directory, path.name, PUBLISH_LIMIT)
             finally:
                 self._remove_temporary(directory, temporary, staged)
+
+    def _require_image_at(self, directory: int, path: Path, expected: Image) -> None:
+        current = self._snapshot_at(directory, path.name, PUBLISH_LIMIT)
+        if current != expected:
+            raise ValueError(f"entry={str(path)!r} {describe_image(current)}; "
+                             f"expected unchanged preflight image {describe_image(expected)}")
 
     def _stage_at(self, directory: int, name: str, payload: bytes, mode: int, gid: int) -> os.stat_result:
         descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -148,24 +163,76 @@ class InstructionFiles:
         finally:
             os.close(descriptor)
 
-    def _publish_at(self, directory: int, temporary: str, name: str, kind: str) -> None:
-        if kind == "absent":
-            os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
-            os.unlink(temporary, dir_fd=directory)
+    def _publish_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
+        if expected.kind == "regular":
+            self._swap_verified_at(directory, temporary, path, expected)
             return
-        if kind != "regular":
-            raise ValueError(f"kind={kind!r}; expected absent or regular canonical destination")
-        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        if expected.kind != "absent":
+            raise ValueError(f"kind={expected.kind!r}; expected absent or regular canonical destination")
+        # link refuses an existing name (EEXIST), so an absent destination has no overwrite race.
+        os.link(temporary, path.name, src_dir_fd=directory, dst_dir_fd=directory,
+                follow_symlinks=False)
+        os.unlink(temporary, dir_fd=directory)
 
-    def _remove_temporary(self, directory: int, name: str, expected: os.stat_result | None) -> None:
-        if expected is None:
-            return
+    def _swap_verified_at(self, directory: int, temporary: str, path: Path, expected: Image) -> None:
+        # rename cannot inspect what it overwrites (MIR-696 P0): swap, then judge what came out.
+        self._exchange_or_refuse(directory, temporary, path)
+        try:
+            self._require_displaced_at(directory, temporary, expected)
+        except (OSError, ValueError) as conflict:
+            kept = self._return_displaced_at(directory, temporary, path)
+            raise ValueError(f"entry={str(path)!r}; {conflict}; concurrent version "
+                             f"preserved at {str(kept)!r}, nothing published") from conflict
+        # Safe to drop: its bytes equal the recorded before-state held in recovery.
+        os.unlink(temporary, dir_fd=directory)
+
+    def _exchange_or_refuse(self, directory: int, temporary: str, path: Path) -> None:
+        try:
+            self.exchange(directory, temporary, path.name)
+        except OSError as failure:
+            if failure.errno not in EXCHANGE_UNSUPPORTED:
+                raise
+            # Fail closed: no os.replace fallback, which would reopen the overwrite race.
+            raise ValueError(
+                f"entry={str(path)!r} platform={sys.platform!r} "
+                f"filesystem device={os.fstat(directory).st_dev}; expected atomic rename-exchange "
+                f"support (renameat2 RENAME_EXCHANGE or renameatx_np RENAME_SWAP), got {failure}; "
+                "destination left untouched") from failure
+
+    def _require_displaced_at(self, directory: int, temporary: str, expected: Image) -> None:
+        displaced = self._snapshot_at(directory, temporary, PUBLISH_LIMIT)
+        if settled_image(displaced) != settled_image(expected):
+            raise ValueError(f"displaced {describe_image(displaced)}; "
+                             f"expected {describe_image(expected)}")
+
+    def _return_displaced_at(self, directory: int, temporary: str, path: Path) -> Path:
+        try:
+            self.exchange(directory, temporary, path.name)
+            os.fsync(directory)
+            return path
+        except OSError:
+            return path.with_name(self._keep_conflict_at(directory, temporary))
+
+    def _keep_conflict_at(self, directory: int, temporary: str) -> str:
+        # Never unlink the displaced version; a stable name tells it apart from scratch files.
+        conflict = ".tmux-agents-conflict-" + secrets.token_hex(12)
+        try:
+            os.link(temporary, conflict, src_dir_fd=directory, dst_dir_fd=directory,
+                    follow_symlinks=False)
+            os.unlink(temporary, dir_fd=directory)
+            return conflict
+        except OSError:
+            return temporary
+
+    def _remove_temporary(self, directory: int, name: str, expected: os.stat_result) -> None:
         try:
             current = os.stat(name, dir_fd=directory, follow_symlinks=False)
-            if (current.st_dev, current.st_ino) == (expected.st_dev, expected.st_ino):
-                os.unlink(name, dir_fd=directory)
         except FileNotFoundError:
             return
+        # Size and mtime too: a save that landed in our staged file while it held the
+        # destination name must survive cleanup after a swap back.
+        if staged_identity(current) == staged_identity(expected):
+            os.unlink(name, dir_fd=directory)
 
     def create_alias(self, path: Path, text: str) -> Image:
         """Create a missing link without replacement; e.g. refuse a late collision."""
@@ -205,3 +272,19 @@ def stable_stat(info: os.stat_result) -> tuple[int, ...]:
     """Exclude read-induced atime; e.g. a first baseline read is not concurrent drift."""
     return (info.st_dev, info.st_ino, info.st_mode, info.st_nlink, info.st_uid, info.st_gid,
             info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def staged_identity(info: os.stat_result) -> tuple[int, ...]:
+    """Recognize our untouched scratch file; e.g. renames change ctime, a later write changes mtime."""
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+
+
+def settled_image(image: Image) -> Image:
+    """Drop ctime, which the swap itself advances; e.g. compare a displaced inode with its preflight."""
+    return replace(image, identity=image.identity[:3])
+
+
+def describe_image(image: Image) -> str:
+    """Name an entry without echoing its content; e.g. kind=regular identity=(…) bytes=12."""
+    return (f"kind={image.kind} identity={image.identity} mode={image.mode:#o} "
+            f"owner={image.uid}:{image.gid} bytes={len(image.payload)} mtime_ns={image.mtime_ns}")
