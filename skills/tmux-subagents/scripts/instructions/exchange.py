@@ -46,10 +46,10 @@ def rename_with_flag(calls: dict[str, tuple[str, int]], platform: str, directory
     if not symbol:
         raise OSError(errno.ENOTSUP, f"platform={platform!r}; expected one of {sorted(calls)} "
                                      "with an atomic flagged rename call")
-    swap_names(symbol, flag, directory_fd, first, second)
+    libc_flagged_rename(symbol, flag, directory_fd, first, second)
 
 
-def swap_names(symbol: str, flag: int, directory_fd: int, first: str, second: str) -> None:
+def libc_flagged_rename(symbol: str, flag: int, directory_fd: int, first: str, second: str) -> None:
     """Call the libc flagged rename and surface errno; e.g. EINVAL from a filesystem without it."""
     call = getattr(ctypes.CDLL(None, use_errno=True), symbol, None)
     if call is None:

@@ -7,7 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from instruction_fixtures import CollidingStageFiles, InstructionFixture, tree_signature
-from files import swap_refusal_outcome
+from refusals import swap_refusal_outcome
 from records import Image, Plan
 from transaction import (
     apply_plan, read_document, remove_created_directory, rollback_journal, rollback_record,

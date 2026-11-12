@@ -12,7 +12,7 @@ from instruction_fixtures import (
     LateSave, ReplaceAfterAliasFiles, SaveAfterPublishFiles, SaveAfterRestoreFiles,
     SaveBeforeRemoveFiles, UnsupportedExchange, replace_with_user_link, save_by_rename_over,
     save_in_place)
-from files import removal_refusal_outcome, unsupported_rename
+from refusals import removal_refusal_outcome, unsupported_rename
 from records import Image
 from transaction import apply_plan, rollback_journal
 

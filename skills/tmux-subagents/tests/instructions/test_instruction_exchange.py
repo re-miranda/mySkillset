@@ -12,8 +12,7 @@ from instruction_fixtures import (
     EDITOR_SAVE, LATE_EDIT, SECOND_SAVE, FailingNextSync, FailingSwapBackExchange,
     FaultInstructionFiles, InstructionFixture, LateEditFiles, RenameOverFiles,
     RenameOverSwapBackExchange, SameTickSecondSaveExchange, SecondSaveExchange,
-    UnsupportedExchange,
-    UnsyncedSwapBackExchange)
+    UnsupportedExchange, UnsyncedSwapBackExchange, tree_signature)
 from exchange import exchange, move_without_replace
 from transaction import apply_plan, rollback_journal
 
@@ -58,19 +57,21 @@ class InstructionExchangeTests(InstructionFixture):
         self.assertNotIn(LATE_EDIT.decode().strip(), message)
 
     def test_unsupported_exchange_fails_closed_without_touching_canonical(self) -> None:
-        """No swap support means no replacement: bytes, inode and mode stay as they were."""
+        """No swap support means no replacement, and apply refuses before writing anything."""
         self.seed_canonical(ORIGINAL, 0o664)
         self.files = FaultInstructionFiles(UnsupportedExchange())
-        before, plan = self.canonical.lstat(), self.plan()
+        plan = self.plan()
         with self.assertRaisesRegex(ValueError, "expected atomic rename-exchange support"):
             self.files.publish(self.canonical, plan.before, self.template, 0o664, plan.before.gid)
-        with self.assertRaisesRegex(ValueError, "expected atomic rename-exchange support"):
-            apply_plan(plan, self.files)
-        after = self.canonical.lstat()
-        self.assertEqual(self.canonical.read_bytes(), ORIGINAL)
-        self.assertEqual((after.st_ino, after.st_mode, after.st_mtime_ns),
-                         (before.st_ino, before.st_mode, before.st_mtime_ns))
         self.assertEqual(self.scratch_names(), [])
+        # MIR-891: apply now finds out on scratch entries, so no journal or directory remains.
+        before = tree_signature(self.root)
+        with self.assertRaisesRegex(ValueError, "expected atomic rename-exchange support.*"
+                                                "before the first document write"):
+            apply_plan(plan, self.files)
+        self.assertEqual(before, tree_signature(self.root))
+        self.assertEqual(self.canonical.read_bytes(), ORIGINAL)
+        self.assertEqual(list(self.root.rglob("journal.json")), [])
 
     def test_failed_swap_back_keeps_user_file_at_reported_conflict_path(self) -> None:
         """When the user's version cannot be returned, it survives under the reported name."""

@@ -11,6 +11,7 @@ from pathlib import Path
 from files import InstructionFiles
 from planning import check_writable_targets, inspect_legacy, validate_destinations
 from records import Image, Parent, Plan, mapping, string
+from rename_probe import prove_renames
 
 
 def read_document(path: Path, files: InstructionFiles) -> dict[str, object]:
@@ -53,12 +54,7 @@ def check_plan(plan: Plan, files: InstructionFiles) -> None:
 
 def prepare_recovery(plan: Plan, files: InstructionFiles) -> tuple[Path, dict[str, object]]:
     """Keep ordinary instruction recovery outside discovery; e.g. never copy a client directory."""
-    for directory in plan.missing:
-        files.make_directory(directory)
-    plan = replace(plan, parents=plan.parents + tuple(files.parent(path) for path in plan.missing))
-    root = plan.canonical.parent / "backups" / "tmux-subagents" / "instructions"
-    recovery = root / f"{time.time_ns()}-{secrets.token_hex(8)}"
-    files.make_directory(recovery)
+    plan, recovery = open_recovery(plan, files)
     for name in ("holding", "payload"):
         files.make_directory(recovery / name)
         if plan.before.kind == "regular":
@@ -70,6 +66,52 @@ def prepare_recovery(plan: Plan, files: InstructionFiles) -> tuple[Path, dict[st
     journal = recovery / "journal.json"
     write_document(journal, record, files)
     return journal, record
+
+
+def open_recovery(plan: Plan, files: InstructionFiles) -> tuple[Plan, Path]:
+    """Create the run's private directory and prove the renames in it; e.g. before any journal.
+
+    MIR-891: nothing but directories exists yet, so a refusal can still leave no trace.
+    """
+    root = plan.canonical.parent / "backups" / "tmux-subagents" / "instructions"
+    recovery = root / f"{time.time_ns()}-{secrets.token_hex(8)}"
+    mtimes = surviving_parent_mtimes(plan.missing, files)
+    for directory in plan.missing:
+        files.make_directory(directory)
+    plan = replace(plan, parents=plan.parents + tuple(files.parent(path) for path in plan.missing))
+    files.make_directory(recovery)
+    try:
+        prove_renames(files, recovery)
+    except (OSError, ValueError) as refusal:
+        withdraw_created(plan, recovery, mtimes, files)
+        raise ValueError(unproven_renames_refusal(plan, refusal)) from refusal
+    return plan, recovery
+
+
+def surviving_parent_mtimes(missing: tuple[Path, ...], files: InstructionFiles) -> dict[Path, int]:
+    """Record mtimes that creating `missing` will change; e.g. {home: ns} when home/pi is new."""
+    surviving = {directory.parent for directory in missing} - set(missing)
+    return {directory: files.directory_mtime(directory) for directory in sorted(surviving)}
+
+
+def withdraw_created(plan: Plan, recovery: Path, mtimes: dict[Path, int],
+                     files: InstructionFiles) -> None:
+    """Undo a run refused before its first write; e.g. the tree is as it was before apply.
+
+    A created directory that gained a concurrent entry is kept, as in rollback.
+    """
+    remove_created_directory(recovery, files.parent(recovery), files)
+    remove_created_directories(plan, files)
+    for directory, mtime_ns in mtimes.items():
+        files.restore_directory_mtime(directory, mtime_ns)
+
+
+def unproven_renames_refusal(plan: Plan, refusal: Exception) -> str:
+    """Word the pre-write refusal; e.g. the cause first, then that no document was touched."""
+    return (f"{refusal}; checked on scratch entries in this run's recovery directory before the "
+            f"first document write; expected both atomic renames to work there, so "
+            f"documents={(str(plan.canonical), str(plan.alias))!r} were not written and the "
+            "directories this run created were removed")
 
 
 def apply_plan(plan: Plan, files: InstructionFiles) -> Path | None:
