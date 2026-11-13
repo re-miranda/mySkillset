@@ -33,7 +33,7 @@ That issue is never closed; areas are never done, they rotate.
    - never reviewed → read the whole area
    - checklist (a floor, not a ceiling): correctness bugs; security (authz gaps, injection,
      secret handling, unsafe parsing, Firestore/storage rule mismatches); violations of
-     CLAUDE.md principles; dead code; missing or assertion-free tests; dependency risks
+     canonical AGENTS.md principles; dead code; missing or assertion-free tests; dependency risks
    - **open mandate**: spend part of every review hunting for problem classes the checklist
      does not name — findings only a newer model would surface are the point of this audit.
      Flag any new class in the run log so a future `/rolling-code-audit-replan` can promote

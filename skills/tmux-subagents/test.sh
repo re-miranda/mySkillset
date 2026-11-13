@@ -37,6 +37,7 @@ test_shell_syntax() {
     "$BIN_DIR/cleanup-pi-agent" "$BIN_DIR/probe-claude-child-policy" \
     "$SKILL_DIR/tests/migration-regressions.sh" \
     "$SKILL_DIR/tests/claude-policy-regressions.sh" \
+    "$SKILL_DIR/tests/instruction-regressions.sh" \
     "$SKILL_DIR/tests/fakes/fake-runtime-command" \
     "$SKILL_DIR/tests/fakes/fake-delivery-verifier"
 }
@@ -55,24 +56,10 @@ seed_safe_claude_policy() {
   seed_safe_claude_policy_at "$pi_dir/local-packages/pi-interactive-subagents"
 }
 
-assert_generic_install_targets() {
-  local claude_home="$1" pi_dir="$2"
-  assert_fixed_contains '<!-- BEGIN TMUX-SUBAGENTS-WORKFLOW -->' "$claude_home/CLAUDE.md"
-  assert_fixed_contains 'native Agent lifecycle' "$claude_home/CLAUDE.md"
-  grep -q 'OLD RULE' "$claude_home/CLAUDE.md" && fail_test "installer retained stale routing block"
-  [ -x "$claude_home/bin/watch-pi-agent" ] || fail_test "installer did not install watcher"
-  [ ! -e "$claude_home/bin/spawn-fable-agent" ] || fail_test "installer exposed legacy Fable helper"
-  [ "$(stat -c '%a' "$claude_home/CLAUDE.md")" = 600 ] || \
-    fail_test "installer broadened the Claude instruction mode"
-  [ -f "$claude_home/skills/tmux-subagents/references/CLAUDE_TO_PI_BRIDGE.md" ] || \
-    fail_test "installer did not install the bridge reference"
-  [ -f "$pi_dir/skills/tmux-subagents/SKILL.md" ] || fail_test "installer did not install the Pi skill"
-  [ -f "$pi_dir/agents/claude-code.md" ] || fail_test "installer did not install the Claude child definition"
-}
-
 test_installer_upgrade() {
   local claude_home="$SUITE_ROOT/upgrade-claude" pi_dir="$SUITE_ROOT/upgrade-pi"
   prepare_legacy_install_state "$claude_home" "$pi_dir"
+  mv "$claude_home/CLAUDE.md" "$pi_dir/AGENTS.md" # Reviewed fixture relocation, not installer authority.
   CLAUDE_HOME="$claude_home" PI_AGENT_DIR="$pi_dir" bash "$SKILL_DIR/install.sh" \
     > "$SUITE_ROOT/upgrade-install.out"
   assert_legacy_paths_archived "$claude_home" "$pi_dir"
@@ -84,7 +71,7 @@ test_installer_upgrade() {
 test_spawn_contract() {
   local root="$SUITE_ROOT/spawn" workdir="$SUITE_ROOT/neutral-workdir" system brief meta
   mkdir -p "$workdir"
-  TMUX_PANE="$TMUX_PANE" "$BIN_DIR/spawn-pi-agent" --dry-run \
+  TMUX_PANE=%900 PATH="$FAKE_SPAWN_BIN:$PATH" "$BIN_DIR/spawn-pi-agent" --dry-run \
     --root "$root" --workdir "$workdir" test-agent 'inspect only' > "$SUITE_ROOT/spawn.out"
   system=$(find "$root/runs" -name system.md -print -quit)
   brief=$(find "$root/runs" -name brief.md -print -quit)
@@ -94,8 +81,8 @@ test_spawn_contract() {
   assert_contains '^WATCH=.*watch-pi-agent' "$SUITE_ROOT/spawn.out"
   assert_fixed_contains '--session-id' "$SUITE_ROOT/spawn.out"
   assert_contains '^session_id=' "$meta"
-  assert_contains '^pi_version=' "$meta"
-  assert_contains '^tmux_version=' "$meta"
+  assert_fixed_contains 'pi_version=pi 0.80.10-test-double' "$meta"
+  assert_fixed_contains 'tmux_version=tmux 3.6b-test-double' "$meta"
   if rg -q 'tmux|send-keys|/poll|KNOWN_FAILURES|Known failures and rejected patterns|\*\*BAD:\*\*' "$system" "$brief"; then
     fail_test "Pi prompt contains maintainer-only failure material"
   fi
@@ -437,9 +424,9 @@ run_installer_tests() {
 }
 
 run_bridge_launch_tests() {
+  prepare_fake_spawn_runtime
   test_spawn_contract
   test_verify_delivery
-  prepare_fake_spawn_runtime
   test_legacy_fable_orchestrator_resolution
   test_spawn_launch_recovery
   test_spawn_launch_failure
@@ -456,17 +443,23 @@ run_bridge_state_tests() {
   test_cleanup_rejects_ambiguous_pane
 }
 
-main() {
+initialize_test_suite() {
   SKILL_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
   BIN_DIR="$SKILL_DIR/scripts"
   FABLE_HELPER="$SKILL_DIR/references/legacy/scripts/spawn-fable-agent"
   source "$SKILL_DIR/tests/migration-regressions.sh"
   source "$SKILL_DIR/tests/claude-policy-regressions.sh"
+  source "$SKILL_DIR/tests/instruction-regressions.sh"
   SUITE_ROOT=$(mktemp -d /tmp/agent-workflow-test.XXXXXX)
   TEST_TMUX_SESSION=""
   trap cleanup_suite EXIT
   start_test_tmux_if_needed
+}
+
+main() {
+  initialize_test_suite
   test_shell_syntax
+  test_instruction_producer
   run_installer_tests
   test_skill_routing_contract
   test_skill_interactive_policy

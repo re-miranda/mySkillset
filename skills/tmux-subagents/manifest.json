@@ -1,13 +1,14 @@
 {
   "name": "tmux-subagents",
-  "version": "2.0.4",
+  "version": "2.0.5",
   "license": "0BSD",
   "entrypoint": "SKILL.md",
   "description": "Pi or Claude Code orchestrates Pi- or Claude-backed children through harness-native lifecycle adapters.",
   "requirements": [
     "claude-code and/or pi",
     "pi-interactive-subagents for Pi orchestration",
-    "tmux and bash for the Claude-to-Pi bridge"
+    "tmux and bash for the Claude-to-Pi bridge",
+    "Python 3.10+ standard library and POSIX no-follow filesystem support for instruction updates"
   ],
   "companionExtension": {
     "name": "pi-interactive-subagents",
@@ -35,14 +36,17 @@
       "~/.claude/bin/poll-pi-agent",
       "~/.claude/bin/cleanup-pi-agent"
     ],
-    "claudeAddendum": "upsert marked block in ~/.claude/CLAUDE.md",
+    "instructionTemplate": "integrations/claude/AGENTS.addendum.md",
+    "canonicalInstructions": "direct marked-block update in $PI_AGENT_DIR/AGENTS.md (default ~/.pi/agent/AGENTS.md)",
+    "claudeInstructionAlias": "verify/preserve $CLAUDE_HOME/rules/AGENTS.md -> canonical AGENTS; never write through it",
     "tmuxAddendum": "optional marked block in ~/.tmux.conf"
   },
   "safety": {
     "nativeLifecycle": "Pi and Claude children use their parent harness's native lifecycle whenever available",
     "bridgeScope": "file and watcher signaling is limited to Claude-to-Pi",
     "claudePermissions": "auto-permissions-v1 capability; classifier-based checks, never bypass; option parsing terminates before task text",
-    "legacyMigration": "exact released signatures only; retired skills are backed up outside discovery roots",
+    "legacyMigration": "exact released skill signatures only; retired skills are backed up outside discovery roots; legacy instruction filenames are detection-only and require separate native withdrawal proof",
+    "instructionRecovery": "private ordinary-document journal and holding/payload recovery; conditional on recorded after-state, never concurrent overwrite",
     "paneAddressing": "validated tmux %<id> only",
     "negativeExamples": "maintainer-only; excluded from generated child prompts"
   }
